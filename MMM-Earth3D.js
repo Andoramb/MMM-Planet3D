@@ -23,7 +23,7 @@ Module.register("MMM-Earth3D", {
 	},
 
 	getScripts: function () {
-		return ["public/vendor/globe.gl.min.js", "public/Earth3DRenderer.js"];
+		return [this.file("public/vendor/globe.gl.min.js"), this.file("public/Earth3DRenderer.js")];
 	},
 
 	getDom: function () {
