@@ -79,6 +79,13 @@ Module.register("MMM-Earth3D", {
 		return [this.file("css/MMM-Earth3D.css")];
 	},
 
+	// public/CloudsLayer.mjs is deliberately NOT listed here - it's an ES
+	// module (needs a real Three.js import) and MM core's getScripts() loader
+	// only recognizes a fixed set of extensions that varies by core version
+	// ("js"/"css" on some, "js"/"css"/"mjs" on others, no default case
+	// either way), so an unrecognized extension silently no-ops with no
+	// error. Earth3DRenderer.js loads it itself via a dynamic import(),
+	// which works identically on every MM core version.
 	getScripts: function () {
 		return [
 			this.file("public/vendor/globe.gl.min.js"),
@@ -89,7 +96,6 @@ Module.register("MMM-Earth3D", {
 			this.file("presets/stars.js"),
 			this.file("presets/themes.js"),
 			this.file("public/EarthCompositor.js"),
-			this.file("public/CloudsLayer.mjs"),
 			this.file("public/Earth3DRenderer.js")
 		];
 	},

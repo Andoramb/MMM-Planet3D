@@ -10,9 +10,14 @@ import * as THREE from "./vendor/three.module.min.js";
  * Three.js build. This mirrors the technique in three-globe's own official
  * example: https://github.com/vasturiano/three-globe/tree/master/example/clouds
  *
- * This file is loaded as type="module" (MM's loader picks that up from the
- * .mjs extension), then attaches itself to window.CloudsLayer so
- * Earth3DRenderer.js (a plain classic script) can use it as a global.
+ * This is loaded via a dynamic import(), not MM's getScripts() - MM core's
+ * own loader only handles a fixed set of file extensions ("js"/"css" in
+ * older core versions, "js"/"css"/"mjs" in newer ones with no default case
+ * either way), so a plain <script type="module"> tag it inserts for an
+ * unrecognized extension can silently no-op on some MM versions with no
+ * error at all. A browser-native dynamic import() bypasses MM's loader
+ * entirely and works the same on every MM core version - see
+ * Earth3DRenderer.js's ensureCloudsLayer().
  */
 
 // --- Tweak clouds size and rotation speed here -------------------------
@@ -31,7 +36,7 @@ const CLOUDS_ROTATION_SPEED_Y_DEG_PER_SEC = 0.5;
 
 const SPHERE_SEGMENTS = 75;
 
-class CloudsLayer {
+export class CloudsLayer {
 	constructor(globeRadius) {
 		this.globeRadius = globeRadius;
 		this.mesh = null;
@@ -96,5 +101,4 @@ class CloudsLayer {
 		}
 	}
 }
-
 window.CloudsLayer = CloudsLayer;

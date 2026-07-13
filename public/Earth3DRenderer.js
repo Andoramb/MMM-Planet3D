@@ -1,4 +1,4 @@
-/* global Globe, EarthCompositor, CloudsLayer */
+/* global Globe, EarthCompositor, Log */
 
 // Matches three-globe's internal GLOBE_RADIUS (world units) - needed here
 // so CloudsLayer can size its sphere relative to the actual globe surface.
@@ -345,31 +345,42 @@ class Earth3DRenderer {
 	}
 
 	// CloudsLayer.mjs is an ES module (it needs a real Three.js import, unlike
-	// the other classic-script assets), loaded via MM's getScripts() like
-	// everything else. Its own top-level code assigns window.CloudsLayer as
-	// its last statement, which should only run once its module graph has
-	// fully evaluated - but dynamically-inserted `type="module"` scripts
-	// don't reliably fire `load` only after evaluation completes across
-	// engines, so CloudsLayer can still be undefined here. Poll instead of
-	// constructing it synchronously, so a slow/late module load degrades to
-	// "clouds appear a moment later" instead of throwing and aborting the
-	// rest of init() (texture, resize tracking, the tick loop - none of
-	// which have anything to do with clouds).
+	// the other classic-script assets) - loaded here via a dynamic import()
+	// rather than through MM's getScripts(), since MM core's own loader only
+	// recognizes a fixed set of file extensions that varies by core version
+	// with no default/fallback case, so an unrecognized one (older cores
+	// don't have an "mjs" case at all) silently never loads the file, with
+	// no error. A native dynamic import() bypasses that entirely and works
+	// the same on any MM core version. Constructing this is async either
+	// way, so the rest of init() (texture, resize tracking, the tick loop -
+	// none of which have anything to do with clouds) doesn't wait on it.
 	ensureCloudsLayer() {
-		if (this.cloudsLayer || this.destroyed) {
+		if (this.cloudsLayer || this.cloudsLayerImporting || this.destroyed) {
 			return;
 		}
-		if (typeof CloudsLayer === "undefined") {
-			requestAnimationFrame(() => this.ensureCloudsLayer());
-			return;
-		}
-		this.cloudsLayer = new CloudsLayer(GLOBE_RADIUS);
-		if (this.pendingCloudsImage) {
-			this.applyCloudsImage(this.pendingCloudsImage);
-		}
-		if (this.globeObject3D) {
-			this.cloudsLayer.attachTo(this.globeObject3D);
-		}
+		this.cloudsLayerImporting = true;
+		// A relative specifier here resolves against this script's own file
+		// URL (not the page's, and not MM's basePath config) since dynamic
+		// import() in a classic script uses the referencing script's base URL
+		// - CloudsLayer.mjs sits right next to this file, so "./" is enough.
+		import("./CloudsLayer.mjs")
+			.then((module) => {
+				this.cloudsLayerImporting = false;
+				if (this.destroyed || this.cloudsLayer) {
+					return;
+				}
+				this.cloudsLayer = new module.CloudsLayer(GLOBE_RADIUS);
+				if (this.pendingCloudsImage) {
+					this.applyCloudsImage(this.pendingCloudsImage);
+				}
+				if (this.globeObject3D) {
+					this.cloudsLayer.attachTo(this.globeObject3D);
+				}
+			})
+			.catch((err) => {
+				this.cloudsLayerImporting = false;
+				Log.error("MMM-Earth3D: failed to load CloudsLayer.mjs (" + err.message + ") - clouds will stay disabled");
+			});
 	}
 
 	applyCloudsImage(image) {
