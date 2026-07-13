@@ -80,7 +80,16 @@ class EarthCompositor {
 	loadImage(url) {
 		return new Promise((resolve, reject) => {
 			const img = new Image();
-			img.crossOrigin = "anonymous"; // required for toDataURL() on cross-origin sources (e.g. GIBS)
+			// Only needed for genuinely cross-origin sources (e.g. NASA GIBS) -
+			// setting it unconditionally, even on same-origin vendored assets
+			// like earth-night.jpg, has caused canvas-tainting on machines that
+			// had cached an earlier, non-CORS response for the exact same URL
+			// (some browsers reuse that cache entry without re-validating CORS
+			// against the crossorigin-tagged request, silently tainting the
+			// canvas this feeds into - see recompute()'s toDataURL() below).
+			if (isCrossOrigin(url)) {
+				img.crossOrigin = "anonymous";
+			}
 			img.onload = () => resolve(img);
 			img.onerror = () => reject(new Error("Failed to load image: " + url));
 			img.src = url;
@@ -184,7 +193,17 @@ class EarthCompositor {
 			this.drawNightOverlay(width, height, grid);
 		}
 
-		this.onReady(this.canvas.toDataURL("image/jpeg", 0.85));
+		// A tainted canvas (e.g. one of the drawn images ended up considered
+		// cross-origin - see loadImage()'s crossOrigin handling above) makes
+		// toDataURL() throw; surface that clearly instead of letting it
+		// silently abort recompute() with no visible day/night change and no
+		// obvious error.
+		try {
+			this.onReady(this.canvas.toDataURL("image/jpeg", 0.85));
+		} catch (err) {
+			Log.error("MMM-Earth3D: failed to export composited day/night texture (" + err.message + ") - day/night will not update");
+			return;
+		}
 
 		this.updateCloudNightMask(grid);
 	}
@@ -276,6 +295,14 @@ class EarthCompositor {
 		this.destroyed = true;
 		clearInterval(this.dayNightTimer);
 		clearTimeout(this.cloudsTimer);
+	}
+}
+
+function isCrossOrigin(url) {
+	try {
+		return new URL(url, window.location.href).origin !== window.location.origin;
+	} catch (err) {
+		return false;
 	}
 }
 
