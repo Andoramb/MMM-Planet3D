@@ -1,3 +1,4 @@
+/* global Log */
 import * as THREE from "./vendor/three.module.min.js";
 
 /*
@@ -93,12 +94,20 @@ const NIGHT_MASK_FRAGMENT_INJECT = {
 };
 
 export class CloudsLayer {
-	constructor(globeRadius) {
+	constructor(globeRadius, debug) {
 		this.globeRadius = globeRadius;
+		this.debug = Boolean(debug);
 		this.mesh = null;
 		this.shader = null;
 		this.nightMaskTexture = null;
 		this.lastFrameTime = null;
+	}
+
+	debugLog() {
+		if (!this.debug) {
+			return;
+		}
+		Log.info.apply(Log, ["[MMM-Earth3D:CloudsLayer]"].concat(Array.prototype.slice.call(arguments)));
 	}
 
 	// Builds the mesh on first call; later calls just swap the texture
@@ -136,6 +145,7 @@ export class CloudsLayer {
 			.replace("#include <common>", NIGHT_MASK_FRAGMENT_INJECT.common)
 			.replace("#include <map_fragment>", NIGHT_MASK_FRAGMENT_INJECT.map_fragment);
 		this.shader = shader;
+		this.debugLog("material compiled, nightMaskEnabled:", shader.uniforms.nightMaskEnabled.value, "had pending mask:", Boolean(this.nightMaskTexture));
 	}
 
 	// image is a small black/transparent alpha mask from EarthCompositor
@@ -143,6 +153,7 @@ export class CloudsLayer {
 	// the same equirectangular projection the clouds texture itself uses),
 	// or null to turn the effect off entirely (dayNight disabled).
 	setNightMask(image) {
+		this.debugLog("setNightMask", Boolean(image), "shader ready:", Boolean(this.shader));
 		if (this.nightMaskTexture) {
 			this.nightMaskTexture.dispose();
 			this.nightMaskTexture = null;

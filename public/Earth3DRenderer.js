@@ -255,17 +255,20 @@ class Earth3DRenderer {
 			this.compositor = new EarthCompositor(
 				this.config,
 				(dataUrl) => {
+					this.debugLog("compositor onReady: applying globeImageUrl, length", dataUrl.length, "threeGlobeObj ready:", Boolean(this.threeGlobeObj));
 					if (this.threeGlobeObj) {
 						this.threeGlobeObj.globeImageUrl(dataUrl);
 					}
 				},
 				(image) => {
+					this.debugLog("compositor onCloudsImage", image.naturalWidth + "x" + image.naturalHeight, "cloudsLayer ready:", Boolean(this.cloudsLayer));
 					this.pendingCloudsImage = image;
 					if (this.cloudsLayer) {
 						this.applyCloudsImage(image);
 					}
 				},
 				(maskImage) => {
+					this.debugLog("compositor onCloudsNightMask", Boolean(maskImage), "cloudsLayer ready:", Boolean(this.cloudsLayer));
 					this.pendingCloudsNightMask = maskImage;
 					if (this.cloudsLayer) {
 						this.cloudsLayer.setNightMask(maskImage);
@@ -511,7 +514,7 @@ class Earth3DRenderer {
 				if (this.destroyed || this.cloudsLayer) {
 					return;
 				}
-				this.cloudsLayer = new module.CloudsLayer(this.threeGlobeObj.getGlobeRadius());
+				this.cloudsLayer = new module.CloudsLayer(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug));
 				if (this.pendingCloudsImage) {
 					this.applyCloudsImage(this.pendingCloudsImage);
 				}
