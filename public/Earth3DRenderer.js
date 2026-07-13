@@ -21,6 +21,12 @@ const ZOOM_ALTITUDE_MAX = 5; // 100 -> far
 // Live config changes ease in over this long instead of jumping.
 const TRANSITION_MS = 700;
 
+// How often to check whether another opaque layer (e.g. a sibling
+// fullscreen_below module stacked on top in the DOM) is fully covering the
+// globe. A plain interval instead of a per-frame check since this only needs
+// to catch layout/stacking changes, not animate anything.
+const OCCLUSION_CHECK_MS = 1000;
+
 // quality presets: sphere tessellation (lower curvatureResolution = more
 // polygons = smoother), antialiasing (renderer construction option, can't
 // change after init), a device-pixel-ratio cap, and which resolution key
@@ -98,6 +104,43 @@ class Earth3DRenderer {
 		// screen/window resizes.
 		this.resizeObserver = new ResizeObserver(() => this.handleResize());
 		this.resizeObserver.observe(this.container);
+
+		// Several MM setups stack more than one fullscreen_below module (e.g.
+		// a background slideshow/wallpaper module alongside this one) with no
+		// explicit z-index, so whichever loads last simply paints over the
+		// others. When that happens the globe is still fully rendering every
+		// frame for nothing - pause the actual WebGL draw loop (globe.gl's own
+		// internal animate loop, not our tick()) while it's covered, and
+		// resume as soon as it's back on top.
+		this.occluded = false;
+		this.occlusionInterval = setInterval(() => this.checkOcclusion(), OCCLUSION_CHECK_MS);
+	}
+
+	// Hit-tests the container's center point. This only catches occlusion by
+	// an element with default pointer-events (like an <img>/<video> background
+	// layer) - a sibling that sets pointer-events:none on its covering
+	// element would still visually hide the globe but pass this check, since
+	// elementFromPoint skips non-hit-testable elements. Good enough for the
+	// common "another fullscreen_below module paints over this one" case.
+	checkOcclusion() {
+		if (this.destroyed || !this.globe) {
+			return;
+		}
+		const rect = this.container.getBoundingClientRect();
+		if (rect.width === 0 || rect.height === 0) {
+			return;
+		}
+		const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+		const occluded = !topElement || !this.container.contains(topElement);
+		if (occluded === this.occluded) {
+			return;
+		}
+		this.occluded = occluded;
+		if (occluded) {
+			this.globe.pauseAnimation();
+		} else {
+			this.globe.resumeAnimation();
+		}
 	}
 
 	// Falls back to config.width/height (then 500) only for the brief window
@@ -173,6 +216,12 @@ class Earth3DRenderer {
 			);
 		}
 		this.compositor.start(textures.image);
+
+		// A freshly constructed Globe always starts animating - applyQuality()
+		// rebuilds it, so re-apply whatever occlusion state was already known.
+		if (this.occluded) {
+			this.globe.pauseAnimation();
+		}
 
 		// The globe mesh isn't added to the scene synchronously (globe.gl
 		// debounces its internal update digest), so poll until it appears.
@@ -363,6 +412,10 @@ class Earth3DRenderer {
 		if (this.resizeObserver) {
 			this.resizeObserver.disconnect();
 			this.resizeObserver = null;
+		}
+		if (this.occlusionInterval) {
+			clearInterval(this.occlusionInterval);
+			this.occlusionInterval = null;
 		}
 		if (this.compositor) {
 			this.compositor.destroy();
