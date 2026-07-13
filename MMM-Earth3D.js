@@ -76,21 +76,21 @@ Module.register("MMM-Earth3D", {
 	},
 
 	getStyles: function () {
-		return [cacheBust(this.file("css/MMM-Earth3D.css"))];
+		return [this.file("css/MMM-Earth3D.css")];
 	},
 
 	getScripts: function () {
 		return [
 			this.file("public/vendor/globe.gl.min.js"),
 			this.file("public/vendor/suncalc.js"),
-			cacheBust(this.file("presets/atmosphere.js")),
-			cacheBust(this.file("presets/earthTextures.js")),
-			cacheBust(this.file("presets/camera.js")),
-			cacheBust(this.file("presets/stars.js")),
-			cacheBust(this.file("presets/themes.js")),
-			cacheBust(this.file("public/EarthCompositor.js")),
-			cacheBust(this.file("public/CloudsLayer.mjs")),
-			cacheBust(this.file("public/Earth3DRenderer.js"))
+			this.file("presets/atmosphere.js"),
+			this.file("presets/earthTextures.js"),
+			this.file("presets/camera.js"),
+			this.file("presets/stars.js"),
+			this.file("presets/themes.js"),
+			this.file("public/EarthCompositor.js"),
+			this.file("public/CloudsLayer.mjs"),
+			this.file("public/Earth3DRenderer.js")
 		];
 	},
 
@@ -462,20 +462,6 @@ Module.register("MMM-Earth3D", {
 		}
 	}
 });
-
-// package.json version, bumped on every release - appended as a query
-// string to this module's own scripts/styles (not the vendored third-party
-// files, which only change with a dependency bump) so a browser with an
-// already-loaded tab, or one whose cache didn't revalidate a static asset
-// against the server's actual mtime, still picks up the new file after a
-// `git pull` + restart instead of silently continuing to run stale code.
-// Bump this alongside any change to MMM-Earth3D.js, public/*, presets/*, or
-// css/*.
-const MODULE_VERSION = "0.2.0";
-
-function cacheBust(url) {
-	return url + (url.indexOf("?") === -1 ? "?" : "&") + "v=" + MODULE_VERSION;
-}
 
 // Accepts [x, y, z] (array shorthand, any axis may be omitted) or {x, y, z}
 // and always returns an {x, y, z}-shaped object, so rotate/position fields
