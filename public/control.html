@@ -314,16 +314,13 @@
 		<h2>Clouds</h2>
 		<fieldset>
 			<legend>Clouds</legend>
-			<label>
-				<span class="name">Enabled</span>
-				<input type="checkbox" id="cloudsEnabled">
-			</label>
-			<div class="row sub-row" id="cloudsSourceRow">
+			<div class="row">
 				<select id="cloudsSource">
+					<option value="disabled">Disabled</option>
 					<option value="static">Standard (Blue Marble)</option>
 					<option value="realtime">Realtime (NASA GIBS)</option>
 				</select>
-				<p class="intro" style="margin:6px 0 0;">
+				<p class="intro sub-row" id="cloudsSourceHint" style="margin:6px 0 0;">
 					Realtime polls NASA GIBS every 24 hours - that's how often
 					its underlying satellite composite actually updates.
 				</p>
@@ -422,21 +419,33 @@
 		}
 	}
 
-	function populatePresetSelect (selectEl, presets, includeCustom) {
+	// firstId pulls that preset (e.g. an atmosphere "Disabled" entry) ahead
+	// of the "Custom" option, since off/on is a more natural first choice
+	// than jumping straight to manual tuning.
+	function populatePresetSelect (selectEl, presets, includeCustom, firstId) {
 		while (selectEl.firstChild) {
 			selectEl.removeChild(selectEl.firstChild);
 		}
-		if (includeCustom) {
-			const custom = document.createElement("option");
-			custom.value = "custom";
-			custom.textContent = "Custom";
-			selectEl.append(custom);
-		}
-		for (const preset of presets || []) {
+
+		const appendOption = (preset) => {
 			const option = document.createElement("option");
 			option.value = preset.id;
 			option.textContent = preset.name;
 			selectEl.append(option);
+		};
+
+		const firstPreset = firstId ? (presets || []).find((entry) => entry.id === firstId) : null;
+		if (firstPreset) {
+			appendOption(firstPreset);
+		}
+		if (includeCustom) {
+			appendOption({ id: "custom", name: "Custom" });
+		}
+		for (const preset of presets || []) {
+			if (preset === firstPreset) {
+				continue;
+			}
+			appendOption(preset);
 		}
 	}
 
@@ -487,7 +496,7 @@
 
 	const atmospherePresetEl = document.getElementById("atmospherePreset");
 	const atmospherePresets = (window.EARTH3D_PRESETS && window.EARTH3D_PRESETS.atmosphere) || [];
-	populatePresetSelect(atmospherePresetEl, atmospherePresets, true);
+	populatePresetSelect(atmospherePresetEl, atmospherePresets, true, "none");
 
 	function sendCustomAtmosphere (patch) {
 		atmospherePresetEl.value = "custom";
@@ -616,22 +625,22 @@
 
 	// --- Clouds ---------------------------------------------------------
 
-	const cloudsEnabledEl = document.getElementById("cloudsEnabled");
 	const cloudsSourceEl = document.getElementById("cloudsSource");
-	const cloudsSourceRow = document.getElementById("cloudsSourceRow");
+	const cloudsSourceHint = document.getElementById("cloudsSourceHint");
 	const cloudsOpacityRow = document.getElementById("cloudsOpacityRow");
 
 	function syncCloudsVisibility () {
-		cloudsSourceRow.classList.toggle("visible", cloudsEnabledEl.checked);
-		cloudsOpacityRow.classList.toggle("visible", cloudsEnabledEl.checked);
+		cloudsOpacityRow.classList.toggle("visible", cloudsSourceEl.value !== "disabled");
+		cloudsSourceHint.classList.toggle("visible", cloudsSourceEl.value === "realtime");
 	}
 
-	cloudsEnabledEl.addEventListener("change", () => {
-		syncCloudsVisibility();
-		send({ clouds: { enabled: cloudsEnabledEl.checked } });
-	});
 	cloudsSourceEl.addEventListener("change", () => {
-		send({ clouds: { source: cloudsSourceEl.value } });
+		syncCloudsVisibility();
+		if (cloudsSourceEl.value === "disabled") {
+			send({ clouds: { enabled: false } });
+		} else {
+			send({ clouds: { enabled: true, source: cloudsSourceEl.value } });
+		}
 	});
 	bindSlider("cloudsOpacity", (value) => send({ clouds: { opacity: value / 100 } }));
 	syncCloudsVisibility();

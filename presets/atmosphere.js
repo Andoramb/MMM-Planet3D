@@ -16,6 +16,11 @@
 window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 window.EARTH3D_PRESETS.atmosphere = [
 	{
+		id: "none",
+		name: "Disabled",
+		atmosphere: { color: "#ffffff", altitude: 0, opacity: 0 }
+	},
+	{
 		id: "realistic",
 		name: "Realistic",
 		atmosphere: { color: "#4aa8ff", altitude: 0.15, opacity: 1 }
@@ -29,10 +34,5 @@ window.EARTH3D_PRESETS.atmosphere = [
 		id: "subtle",
 		name: "Subtle Haze",
 		atmosphere: { color: "#a8c8ff", altitude: 0.08, opacity: 0.6 }
-	},
-	{
-		id: "none",
-		name: "No Atmosphere",
-		atmosphere: { color: "#ffffff", altitude: 0, opacity: 0 }
 	}
 ];
