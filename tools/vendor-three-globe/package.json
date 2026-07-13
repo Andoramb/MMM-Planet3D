@@ -1,0 +1,6 @@
+{
+	"name": "vendor-three-globe",
+	"private": true,
+	"description": "Dev-only tool to regenerate public/vendor/three-globe.mjs - see README.md. Not part of the MMM-Earth3D runtime.",
+	"version": "0.0.0"
+}
