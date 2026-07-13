@@ -34,7 +34,12 @@ const TWILIGHT_DEG = 6;
 // enabled - multiplies the clouds texture's brightness there, blended
 // smoothly across the same twilight band as the globe's own terminator.
 // 0 = no darkening (clouds stay full brightness everywhere), 1 = fully
-// black at full night. Tweak this to taste.
+// black at full night.
+//
+// TWEAK THIS VALUE HERE. Deliberately not part of config.js/EARTH3D_SET_CONFIG
+// - like CLOUDS_ALTITUDE/CLOUDS_ROTATION_SPEED_* in CloudsLayer.mjs, this is
+// a rarely-touched visual-tuning constant, not something meant to be exposed
+// to end users as a slider.
 const CLOUDS_NIGHT_DARKEN = 0.65;
 
 // NASA GIBS' underlying satellite composite only updates once per day (see
@@ -61,6 +66,7 @@ class EarthCompositor {
 		this.cloudShadeCanvas = document.createElement("canvas");
 		this.cloudShadeCanvas.width = MASK_WIDTH;
 		this.cloudShadeCanvas.height = MASK_HEIGHT;
+		this.cloudShadeScratchCanvas = document.createElement("canvas");
 		this.cloudsCanvas = document.createElement("canvas");
 
 		this.dayNightTimer = null;
@@ -244,23 +250,47 @@ class EarthCompositor {
 		ctx.drawImage(this.cloudsRawImage, 0, 0, width, height);
 
 		if (this.config.dayNight.mode !== "disabled") {
-			this.buildCloudShadeMask(grid || this.computeAltitudeGrid());
-			ctx.globalCompositeOperation = "multiply";
-			ctx.drawImage(this.cloudShadeCanvas, 0, 0, width, height);
-			// "multiply" composites alpha too (Porter-Duff source-over on the
-			// alpha channel), and cloudShadeCanvas is fully opaque - so the
-			// line above also inflates alpha to ~1 everywhere it touches,
-			// wiping out the clouds PNG's own transparent "no cloud"
-			// background. Re-clip to the original per-pixel alpha shape
-			// (destination-in keeps the just-darkened RGB, only rescales
-			// alpha by the source's) - same masking technique drawNightOverlay
-			// uses above, just applied to restore rather than to punch in.
-			ctx.globalCompositeOperation = "destination-in";
-			ctx.drawImage(this.cloudsRawImage, 0, 0, width, height);
-			ctx.globalCompositeOperation = "source-over";
+			this.darkenCloudsNightSide(ctx, width, height, grid || this.computeAltitudeGrid());
 		}
 
 		this.onCloudsImage(this.cloudsCanvas);
+	}
+
+	// Darkens the just-drawn clouds canvas on the night side, in place.
+	// Deliberately NOT done via a canvas globalCompositeOperation blend
+	// (tried "multiply", also tried "multiply" + "destination-in" to fix
+	// it) - every composite-mode blend also composites the ALPHA channel
+	// per its own Porter-Duff rule, which either flattened the clouds PNG's
+	// transparent "no cloud" background to fully opaque (a solid white
+	// ghost sphere) or, once patched, still came out visually wrong due to
+	// premultiplied-alpha rounding through two chained composite ops.
+	// Reading/writing ImageData directly sidesteps all of that: only the
+	// R/G/B channels are scaled here, alpha is copied through completely
+	// untouched, so there is no compositing math to get subtly wrong.
+	darkenCloudsNightSide(ctx, width, height, grid) {
+		this.buildCloudShadeMask(grid);
+
+		this.cloudShadeScratchCanvas.width = width;
+		this.cloudShadeScratchCanvas.height = height;
+		const scratchCtx = this.cloudShadeScratchCanvas.getContext("2d");
+		// Upscales the low-res (MASK_WIDTH x MASK_HEIGHT) shade grid to the
+		// clouds image's full resolution - a plain draw (default
+		// "source-over" onto a freshly-cleared, unrelated canvas), not a
+		// blend, so it can't touch anyone else's alpha.
+		scratchCtx.clearRect(0, 0, width, height);
+		scratchCtx.drawImage(this.cloudShadeCanvas, 0, 0, width, height);
+		const shade = scratchCtx.getImageData(0, 0, width, height).data;
+
+		const clouds = ctx.getImageData(0, 0, width, height);
+		const pixels = clouds.data;
+		for (let i = 0; i < pixels.length; i += 4) {
+			const factor = shade[i] / 255; // shade mask is grayscale: R = G = B
+			pixels[i] *= factor;
+			pixels[i + 1] *= factor;
+			pixels[i + 2] *= factor;
+			// pixels[i + 3] (alpha) intentionally left untouched
+		}
+		ctx.putImageData(clouds, 0, 0);
 	}
 
 	// Builds a multiply-darken mask: white (unchanged) on the day side,
