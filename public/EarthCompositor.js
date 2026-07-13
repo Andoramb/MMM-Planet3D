@@ -1,4 +1,4 @@
-/* global SunCalc, Log */
+/* global MMMEarth3DSunCalc, Log */
 
 /*
  * EarthCompositor
@@ -251,12 +251,14 @@ class EarthCompositor {
 			for (let x = 0; x < MASK_WIDTH; x++) {
 				const lng = (x / (MASK_WIDTH - 1)) * 360 - 180;
 				// Both branches return degrees - this vendored SunCalc build
+				// (exposed as window.MMMEarth3DSunCalc, not window.SunCalc -
+				// see public/vendor/suncalc.js's header comment for why)
 				// divides by its internal `rad` (= PI/180) constant before
 				// returning altitude, i.e. converts to degrees itself (unlike
 				// some SunCalc versions/docs which return radians - checked
 				// public/vendor/suncalc.js directly rather than assuming).
 				const altitudeDeg = mode === "realtime"
-					? SunCalc.getPosition(now, lat, lng).altitude
+					? MMMEarth3DSunCalc.getPosition(now, lat, lng).altitude
 					: solarAltitudeDeg(lat, lng, 0, customLng);
 				grid[y * MASK_WIDTH + x] = altitudeDeg;
 				if (altitudeDeg < minAlt) minAlt = altitudeDeg;

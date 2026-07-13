@@ -1,5 +1,16 @@
+// MODIFIED from the upstream vendored build: the global this UMD wrapper
+// exposes was renamed from `SunCalc` to `MMMEarth3DSunCalc` (only this
+// line). MagicMirror core's own default `clock` and `weather` modules both
+// load MM core's *own* suncalc (the real upstream npm package, which
+// returns altitude in radians - see js/vendor.js's "suncalc.js" shortcut in
+// MM core) as `window.SunCalc` - since that's an almost-universal pair of
+// default modules, whichever of that or this file's own script tag executes
+// last on the page silently overwrites the other's `window.SunCalc`,
+// regardless of what either module actually intends. Renaming this file's
+// global sidesteps the collision entirely instead of depending on module
+// load order in someone else's config.js.
 (function(global, factory) {
-	typeof exports === "object" && typeof module !== "undefined" ? factory(exports) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, factory(global.SunCalc = {}));
+	typeof exports === "object" && typeof module !== "undefined" ? factory(exports) : typeof define === "function" && define.amd ? define(["exports"], factory) : (global = typeof globalThis !== "undefined" ? globalThis : global || self, factory(global.MMMEarth3DSunCalc = {}));
 })(this, function(exports) {
 	Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 	//#region index.js
