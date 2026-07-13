@@ -1,5 +1,11 @@
 .MMM-Earth3D {
 	overflow: hidden;
+	/* MM's .region.fullscreen sets pointer-events:none and it's inherited -
+	   without overriding it here, the renderer's own occlusion check (which
+	   hit-tests via document.elementFromPoint) can never find this element or
+	   its canvas, since non-hit-testable elements are excluded from that
+	   lookup - it would always read as "occluded" and stay paused forever. */
+	pointer-events: auto;
 }
 
 .MMM-Earth3D--fullscreen {
