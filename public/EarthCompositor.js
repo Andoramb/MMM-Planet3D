@@ -247,6 +247,16 @@ class EarthCompositor {
 			this.buildCloudShadeMask(grid || this.computeAltitudeGrid());
 			ctx.globalCompositeOperation = "multiply";
 			ctx.drawImage(this.cloudShadeCanvas, 0, 0, width, height);
+			// "multiply" composites alpha too (Porter-Duff source-over on the
+			// alpha channel), and cloudShadeCanvas is fully opaque - so the
+			// line above also inflates alpha to ~1 everywhere it touches,
+			// wiping out the clouds PNG's own transparent "no cloud"
+			// background. Re-clip to the original per-pixel alpha shape
+			// (destination-in keeps the just-darkened RGB, only rescales
+			// alpha by the source's) - same masking technique drawNightOverlay
+			// uses above, just applied to restore rather than to punch in.
+			ctx.globalCompositeOperation = "destination-in";
+			ctx.drawImage(this.cloudsRawImage, 0, 0, width, height);
 			ctx.globalCompositeOperation = "source-over";
 		}
 
