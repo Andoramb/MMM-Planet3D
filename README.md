@@ -1,7 +1,8 @@
 # MMM-Earth3D
 
 A [MagicMirror²](https://magicmirror.builders/) module that renders a rotating,
-photorealistic 3D Earth using [globe.gl](https://github.com/vasturiano/globe.gl).
+photorealistic 3D Earth using [three-globe](https://github.com/vasturiano/three-globe)
+and [Three.js](https://threejs.org/).
 
 Status: **under active development** (scaffold stage).
 
@@ -9,7 +10,7 @@ Status: **under active development** (scaffold stage).
 
 - [x] Module scaffold
 - [x] Hello World validation
-- [x] globe.gl integration (Earth texture, atmosphere, auto-rotation)
+- [x] three-globe/Three.js integration (Earth texture, atmosphere, auto-rotation)
 - [x] Cloud layer (static Blue Marble + realtime NASA GIBS)
 - [x] Day/night terminator (realtime sun position + fixed custom angle)
 - [ ] City lights
@@ -23,9 +24,12 @@ Status: **under active development** (scaffold stage).
 
 Clone this module into your MagicMirror `modules/` directory as `MMM-Earth3D`,
 then add it to `config.js` - no `npm install` needed. The globe renders via
-[globe.gl](https://github.com/vasturiano/globe.gl), whose browser build and Earth
-textures are vendored under `public/` so the module has no runtime CDN or npm
-dependency.
+[three-globe](https://github.com/vasturiano/three-globe) and
+[Three.js](https://threejs.org/), whose browser builds and Earth textures are
+vendored under `public/` so the module has no runtime CDN or npm dependency.
+`public/vendor/three-globe.mjs` isn't a hand-downloaded file - it's produced
+by a small esbuild script under `tools/vendor-three-globe/` (see that
+directory's README for why, and how to regenerate it after a version bump).
 
 ## Configuration
 
@@ -73,8 +77,8 @@ dependency.
 | `theme`                  | string \| `"custom"` | `"custom"` | A theme id from `presets/themes.js` bundling atmosphere/texture/camera together, or `"custom"` to configure them individually below. See [Themes](#themes) for the full resolution order. |
 | `atmosphere.preset`      | string \| `"custom"` | `"custom"` | An id from `presets/atmosphere.js`, or `"custom"` for the fields below. |
 | `atmosphere.color`       | string | `"#4aa8ff"` | Atmosphere glow color. Only used when `preset` is `"custom"`. |
-| `atmosphere.altitude`    | number | `0.15`  | Atmosphere glow thickness (globe.gl's `atmosphereAltitude`, roughly `0`-`0.5`). Only used when `preset` is `"custom"`. |
-| `atmosphere.opacity`     | number | `1`     | `0` hides the atmosphere entirely, `>0` shows it. Not a native globe.gl concept - approximated as an on/off threshold rather than true alpha blending. Only used when `preset` is `"custom"`. |
+| `atmosphere.altitude`    | number | `0.15`  | Atmosphere glow thickness (three-globe's `atmosphereAltitude`, roughly `0`-`0.5`). Only used when `preset` is `"custom"`. |
+| `atmosphere.opacity`     | number | `1`     | `0` hides the atmosphere entirely, `>0` shows it. Not a native three-globe concept - approximated as an on/off threshold rather than true alpha blending. Only used when `preset` is `"custom"`. |
 | `texture.preset`         | string \| `"custom"` | `"blue-marble"` | An id from `presets/earthTextures.js`, or `"custom"` with `texture.imageUrl` / `texture.bumpImageUrl` for your own fixed texture. |
 | `camera.preset`          | string \| `"custom"` | `"custom"` | An id from `presets/camera.js` (overrides zoom/rotate/position below), or `"custom"` to use those fields directly. |
 | `camera.zoom`            | number | `50`    | Camera distance, `0` (far) to `100` (close). Only used when `preset` is `"custom"`. Needs fine-tuning by eye once visible. |
@@ -164,10 +168,11 @@ These two use different techniques, deliberately:
 
 **Day/Night** (`dayNight.mode`) blends a night-lights texture onto the day
 texture on an offscreen `<canvas>` (`public/EarthCompositor.js`), then hands
-the composited result to globe.gl as a single `globeImageUrl`. This avoids
-touching Three.js directly: the vendored `globe.gl.min.js` bundles its own
-internal copy that isn't exposed globally, and a flat terminator blend
-doesn't need real 3D geometry anyway - just per-pixel math.
+the composited result to three-globe as a single `globeImageUrl`. This keeps
+day/night a simple 2D image pipeline, independent of the render loop - a flat
+terminator blend doesn't need real 3D geometry, just per-pixel math, so
+there's no reason to make it a shader even though `Earth3DRenderer.js` has
+direct access to the Three.js scene now.
 - `"realtime"` computes actual solar illumination using [SunCalc](https://github.com/mourner/suncalc) (vendored, pure date/time math, no network calls), recomputed every 5 minutes - plenty, since the terminator only moves ~0.25°/minute. The "now" it feeds to SunCalc comes from **node_helper.js's clock** (`Date.now()` on the machine actually running MagicMirror), not the browser's - `MMM-Earth3D.js` asks for it once at startup (`EARTH3D_REQUEST_SERVER_TIME`/`EARTH3D_SERVER_TIME`) and applies the resulting offset in `EarthCompositor.computeAltitudeGrid()`. This matters because the page can be opened from a browser on a different machine/timezone than the mirror itself (e.g. this control panel) - without it, "realtime" would reflect whoever's viewing it instead of where the globe actually lives.
 - `"custom"` fixes the terminator at a single longitude set by `dayNight.rotate`, using the same rendering path but without any real astronomy.
 - `"disabled"` (default) skips this entirely - just the day texture, as before.
@@ -175,11 +180,11 @@ doesn't need real 3D geometry anyway - just per-pixel math.
 **Clouds** (`clouds.*`) is a real second sphere (`public/CloudsLayer.mjs`),
 slightly larger than the globe and rotating independently, for a proper
 parallax effect - unlike day/night, this genuinely needs Three.js geometry
-(`SphereGeometry` + `MeshPhongMaterial` + `Mesh`), which the vendored
-`globe.gl.min.js` doesn't expose. So `CloudsLayer.mjs` is loaded as an ES
-module (`type="module"`, picked up from its `.mjs` extension) importing a
-separately-vendored Three.js build (`public/vendor/three.module.min.js` +
-`three.core.min.js`, same technique as [three-globe's own official clouds example](https://github.com/vasturiano/three-globe/tree/master/example/clouds)) and attaches its mesh as a child of the globe object.
+(`SphereGeometry` + `MeshPhongMaterial` + `Mesh`). `CloudsLayer.mjs` is loaded
+as an ES module (`type="module"`, picked up from its `.mjs` extension)
+importing `public/vendor/three.module.min.js` - the same Three.js instance
+`Earth3DRenderer.js` and `public/vendor/three-globe.mjs` use (same technique
+as [three-globe's own official clouds example](https://github.com/vasturiano/three-globe/tree/master/example/clouds)) - and attaches its mesh as a child of the globe object.
 - `source: "static"` uses a vendored Blue Marble Next Generation cloud texture ([matteason/live-cloud-maps](https://github.com/matteason/live-cloud-maps), MIT, sourced from NASA imagery) - no network dependency.
 - `source: "realtime"` fetches a live image from [NASA GIBS](https://www.earthdata.nasa.gov/data/tools/worldview) via its [Worldview Snapshots API](https://wvs.earthdata.nasa.gov/), free, no API key, CORS-open. It's polled every 24 hours (hardcoded, not configurable) because that's how often the underlying MODIS satellite composite actually updates - confirmed against GIBS' own capabilities document, so polling more often would just re-fetch the same image. If the fetch fails (network issue, etc.), it silently falls back to the static texture rather than showing nothing.
 - `opacity` is the only clouds knob exposed as config; **size and rotation speed are constants in `public/CloudsLayer.mjs`**, at the top of the file:
@@ -198,7 +203,7 @@ separately-vendored Three.js build (`public/vendor/three.module.min.js` +
   ```
   This is deliberately *not* baked into the clouds texture itself: since the clouds mesh spins independently (the parallax effect above), anything painted into its own texture would drift out of alignment with the true terminator as it rotates. Instead, `EarthCompositor` hands `CloudsLayer.mjs` a small black/transparent alpha mask, which renders it as a second sphere - same size as the clouds, attached as a *sibling* of the clouds mesh rather than nested inside it, so it inherits the globe's own orientation but never the clouds' own extra rotation. That keeps it correctly aligned with the real day/night line (realtime or custom) indefinitely, however long the clouds have been drifting.
 
-  The atmosphere glow is *not* shaded this way - globe.gl's atmosphere is a single-color shader shell around the whole globe, not a texture, so it has no per-longitude "night side" to darken without forking that shader.
+  The atmosphere glow is *not* shaded this way - three-globe's atmosphere is a single-color shader shell around the whole globe, not a texture, so it has no per-longitude "night side" to darken without forking that shader.
 
 ## Live tuning (no restart or reload)
 

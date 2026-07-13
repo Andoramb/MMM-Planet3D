@@ -2,12 +2,11 @@
 
 /*
  * EarthCompositor
- * Builds the day+night texture handed to globe.gl's globeImageUrl() by
+ * Builds the day+night texture handed to three-globe's globeImageUrl() by
  * layering them on an offscreen canvas, then exporting a data URL. This
- * deliberately avoids touching Three.js directly for day/night (globe.gl
- * vendors its own bundled copy that isn't exposed globally) - compositing
- * into the existing texture pipeline sidesteps needing a second Three.js
- * instance for that.
+ * deliberately keeps day/night a simple 2D image pipeline, independent of
+ * the render loop - a flat terminator blend doesn't need real 3D geometry,
+ * just per-pixel math, so there's no reason to make it a shader.
  *
  * Clouds are handled differently: they're a real second sphere (see
  * CloudsLayer.mjs) for an independently-rotating, slightly-larger layer,
