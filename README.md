@@ -168,7 +168,7 @@ the composited result to globe.gl as a single `globeImageUrl`. This avoids
 touching Three.js directly: the vendored `globe.gl.min.js` bundles its own
 internal copy that isn't exposed globally, and a flat terminator blend
 doesn't need real 3D geometry anyway - just per-pixel math.
-- `"realtime"` computes actual solar illumination using [SunCalc](https://github.com/mourner/suncalc) (vendored, pure date/time math, no network calls), recomputed every 5 minutes - plenty, since the terminator only moves ~0.25°/minute.
+- `"realtime"` computes actual solar illumination using [SunCalc](https://github.com/mourner/suncalc) (vendored, pure date/time math, no network calls), recomputed every 5 minutes - plenty, since the terminator only moves ~0.25°/minute. The "now" it feeds to SunCalc comes from **node_helper.js's clock** (`Date.now()` on the machine actually running MagicMirror), not the browser's - `MMM-Earth3D.js` asks for it once at startup (`EARTH3D_REQUEST_SERVER_TIME`/`EARTH3D_SERVER_TIME`) and applies the resulting offset in `EarthCompositor.computeAltitudeGrid()`. This matters because the page can be opened from a browser on a different machine/timezone than the mirror itself (e.g. this control panel) - without it, "realtime" would reflect whoever's viewing it instead of where the globe actually lives.
 - `"custom"` fixes the terminator at a single longitude set by `dayNight.rotate`, using the same rendering path but without any real astronomy.
 - `"disabled"` (default) skips this entirely - just the day texture, as before.
 
@@ -192,10 +192,12 @@ separately-vendored Three.js build (`public/vendor/three.module.min.js` +
   const CLOUDS_VARIATION_PERIOD_Y_SEC = 140;
   ```
   These aren't live-updatable config (a size/rotation change needs a page reload, not a `EARTH3D_SET_CONFIG` notification) since they're rarely-tweaked constants, not something you'd want a slider for.
-- When `dayNight.mode` isn't `"disabled"`, clouds are also darkened on the night side (multiplied against the same terminator computed for the globe texture, so both stay in sync) - **the strength is a constant in `public/EarthCompositor.js`**:
+- When `dayNight.mode` isn't `"disabled"`, clouds are also darkened on the night side - **the strength is a constant in `public/EarthCompositor.js`**:
   ```js
-  const CLOUDS_NIGHT_DARKEN = 0.65; // 0 = no darkening, 1 = fully black at full night
+  const CLOUDS_NIGHT_DARKEN = 0.85; // 0 = no darkening, 1 = fully black at full night
   ```
+  This is deliberately *not* baked into the clouds texture itself: since the clouds mesh spins independently (the parallax effect above), anything painted into its own texture would drift out of alignment with the true terminator as it rotates. Instead, `EarthCompositor` hands `CloudsLayer.mjs` a small black/transparent alpha mask, which renders it as a second sphere - same size as the clouds, attached as a *sibling* of the clouds mesh rather than nested inside it, so it inherits the globe's own orientation but never the clouds' own extra rotation. That keeps it correctly aligned with the real day/night line (realtime or custom) indefinitely, however long the clouds have been drifting.
+
   The atmosphere glow is *not* shaded this way - globe.gl's atmosphere is a single-color shader shell around the whole globe, not a texture, so it has no per-longitude "night side" to darken without forking that shader.
 
 ## Live tuning (no restart or reload)
@@ -232,6 +234,28 @@ For interactive tuning, open `public/control.html` from this module in a browser
 small self-contained page with sliders for every option above, wired to the same
 endpoint. This page is a standalone dev tool, not part of the MagicMirror module
 itself, so it isn't rendered on the mirror.
+
+Picking a theme (or anything else) refreshes every control on the page to match
+what actually got resolved, via `GET /MMM-Earth3D/config` - node_helper.js asks
+the running module (`EARTH3D_REQUEST_CONFIG`/`EARTH3D_CONFIG_STATE` over the
+same socket channel) for its current resolved config *and* its sparse
+`userOverrides`, and answers with whatever it reports back. This is also what
+lets the page reflect a theme/config set in `config.js` at startup, not just
+values changed from the page itself.
+
+The Home page's **Duplicate current theme** / **Save current settings to
+theme** / **Delete theme** buttons edit `presets/themes.js` on disk, via
+`POST /MMM-Earth3D/theme` (`{"action": "duplicate" | "save" | "delete", ...}`).
+"Save" merges only the fields you've actually changed (`userOverrides` above)
+into the selected theme, so untouched fields keep whatever the theme already
+had rather than being pinned to today's values. These edit the *file*, not the
+live scene - like any other `presets/*.js` edit, the already-running display
+needs a reload/restart to pick it up (this control page itself reloads
+automatically after a successful edit, since it just re-reads the file via a
+plain `<script>` tag). Also worth knowing: each write regenerates the whole
+file from its parsed contents, so it normalizes formatting and **will strip
+any hand-written comments inside individual theme entries** (the file's
+top-of-file doc comment is preserved) - not just from the theme you touched.
 
 If you already have [MMM-Remote-Control](https://github.com/Jopyth/MMM-Remote-Control)
 installed, its generic notification API works too (`POST

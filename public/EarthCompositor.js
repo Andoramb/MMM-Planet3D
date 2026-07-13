@@ -12,8 +12,13 @@
  * Clouds are handled differently: they're a real second sphere (see
  * CloudsLayer.mjs) for an independently-rotating, slightly-larger layer,
  * which genuinely does need Three.js geometry - but EarthCompositor still
- * owns *fetching* the clouds image (static/GIBS/fallback/poll), handing
- * the loaded image off via onCloudsImage() rather than drawing it itself.
+ * owns *fetching* the clouds image (static/GIBS/fallback/poll), handing the
+ * loaded image off via onCloudsImage() rather than drawing it itself.
+ *
+ * Night-side darkening for clouds is NOT baked into that texture (see
+ * onCloudsNightMask() below for why) - it's a small standalone alpha mask
+ * handed to CloudsLayer.mjs, which renders it as a second, non-rotating
+ * sphere over the clouds.
  */
 
 // Day/night terminator recompute interval. The terminator moves ~0.25
@@ -30,32 +35,24 @@ const MASK_HEIGHT = 90;
 // civil twilight - gives a soft terminator edge instead of a hard line.
 const TWILIGHT_DEG = 6;
 
-// How much darker the clouds layer gets on the night side, when dayNight is
-// enabled - multiplies the clouds texture's brightness there, blended
-// smoothly across the same twilight band as the globe's own terminator.
-// 0 = no darkening (clouds stay full brightness everywhere), 1 = fully
-// black at full night.
-//
-// TWEAK THIS VALUE HERE. Deliberately not part of config.js/EARTH3D_SET_CONFIG
-// - like CLOUDS_ALTITUDE/CLOUDS_ROTATION_SPEED_* in CloudsLayer.mjs, this is
-// a rarely-touched visual-tuning constant, not something meant to be exposed
-// to end users as a slider.
-const CLOUDS_NIGHT_DARKEN = 0.65;
+const CLOUDS_NIGHT_DARKEN = 0.85;
 
 // NASA GIBS' underlying satellite composite only updates once per day (see
 // README), so polling more often than this just re-requests the same image.
 const CLOUDS_POLL_MS = 24 * 60 * 60 * 1000;
 
 class EarthCompositor {
-	constructor(config, onReady, onCloudsImage, assetPath) {
+	constructor(config, onReady, onCloudsImage, onCloudsNightMask, assetPath) {
 		this.config = config;
 		this.onReady = onReady;
 		this.onCloudsImage = onCloudsImage;
+		this.onCloudsNightMask = onCloudsNightMask;
 		this.assetPath = assetPath;
 
 		this.dayImage = null;
 		this.nightImage = null;
 		this.cloudsRawImage = null;
+		this.serverTimeOffsetMs = 0;
 
 		this.canvas = document.createElement("canvas");
 		this.ctx = this.canvas.getContext("2d");
@@ -63,15 +60,22 @@ class EarthCompositor {
 		this.maskCanvas.width = MASK_WIDTH;
 		this.maskCanvas.height = MASK_HEIGHT;
 		this.nightScratchCanvas = document.createElement("canvas");
-		this.cloudShadeCanvas = document.createElement("canvas");
-		this.cloudShadeCanvas.width = MASK_WIDTH;
-		this.cloudShadeCanvas.height = MASK_HEIGHT;
-		this.cloudShadeScratchCanvas = document.createElement("canvas");
-		this.cloudsCanvas = document.createElement("canvas");
+		this.cloudMaskCanvas = document.createElement("canvas");
+		this.cloudMaskCanvas.width = MASK_WIDTH;
+		this.cloudMaskCanvas.height = MASK_HEIGHT;
 
 		this.dayNightTimer = null;
 		this.cloudsTimer = null;
 		this.destroyed = false;
+	}
+
+	// Set once by Earth3DRenderer as soon as it hears back from node_helper
+	// (see MMM-Earth3D.js's EARTH3D_SERVER_TIME handler) - realtime dayNight
+	// should reflect the clock of the machine actually running MagicMirror,
+	// not whichever device's browser happens to be viewing the page.
+	setServerTimeOffset(offsetMs) {
+		this.serverTimeOffsetMs = offsetMs;
+		this.recompute();
 	}
 
 	loadImage(url) {
@@ -143,7 +147,8 @@ class EarthCompositor {
 				return; // no-op: keep whatever clouds image (if any) was already showing
 			}
 		}
-		this.recomputeClouds(null);
+		this.onCloudsImage(this.cloudsRawImage);
+		this.updateCloudNightMask(null);
 	}
 
 	// NASA GIBS' Worldview Snapshot API. Note: the underlying satellite
@@ -171,8 +176,8 @@ class EarthCompositor {
 		this.ctx.clearRect(0, 0, width, height);
 		this.ctx.drawImage(this.dayImage, 0, 0, width, height);
 
-		// Computed once and shared with recomputeClouds() below so toggling/
-		// polling day-night doesn't run the SunCalc grid twice per tick.
+		// Computed once and shared with updateCloudNightMask() below so
+		// toggling/polling day-night doesn't run the SunCalc grid twice.
 		const dayNightEnabled = this.config.dayNight.mode !== "disabled";
 		const grid = dayNightEnabled ? this.computeAltitudeGrid() : null;
 
@@ -182,15 +187,15 @@ class EarthCompositor {
 
 		this.onReady(this.canvas.toDataURL("image/jpeg", 0.85));
 
-		this.recomputeClouds(grid);
+		this.updateCloudNightMask(grid);
 	}
 
 	// Grid of solar altitude (degrees), one entry per mask pixel - shared by
-	// drawNightOverlay (globe night-lights alpha) and buildCloudShadeMask
+	// drawNightOverlay (globe night-lights alpha) and buildCloudNightMask
 	// (clouds darkening) so both derive from the exact same terminator.
 	computeAltitudeGrid() {
 		const mode = this.config.dayNight.mode;
-		const now = new Date();
+		const now = new Date(Date.now() + this.serverTimeOffsetMs);
 		// custom mode: fixed subsolar point at the equator, longitude set by
 		// config.dayNight.rotate (0-360 -> -180..180) - no real astronomy.
 		const customLng = ((this.config.dayNight.rotate % 360) + 360) % 360 - 180;
@@ -232,79 +237,38 @@ class EarthCompositor {
 		this.ctx.drawImage(this.nightScratchCanvas, 0, 0);
 	}
 
-	// Darkens the clouds texture on the night side to match the globe's own
-	// day/night shading. `grid` is an already-computed altitude grid (passed
-	// by recompute()) or null (called standalone from refreshClouds(), e.g.
-	// after a fresh GIBS fetch, where it computes its own).
-	recomputeClouds(grid) {
+	// Hands CloudsLayer.mjs a small black/transparent alpha mask (or null)
+	// to render as its own separate, non-rotating shell over the clouds -
+	// deliberately NOT baked as darkened pixels into the clouds texture
+	// itself: CloudsLayer spins the clouds mesh independently for a parallax
+	// effect, so anything baked into *its* texture drifts out of alignment
+	// with the true terminator as it rotates. A separate mesh that's parented
+	// alongside (not nested under) the spinning clouds mesh inherits only the
+	// globe's own orientation, so it stays correctly aligned with the real
+	// day/night line - realtime or custom - no matter how the clouds drift.
+	updateCloudNightMask(grid) {
 		if (this.destroyed || !this.cloudsRawImage) {
 			return;
 		}
-
-		const width = this.cloudsRawImage.naturalWidth;
-		const height = this.cloudsRawImage.naturalHeight;
-		this.cloudsCanvas.width = width;
-		this.cloudsCanvas.height = height;
-		const ctx = this.cloudsCanvas.getContext("2d");
-		ctx.clearRect(0, 0, width, height);
-		ctx.drawImage(this.cloudsRawImage, 0, 0, width, height);
-
-		if (this.config.dayNight.mode !== "disabled") {
-			this.darkenCloudsNightSide(ctx, width, height, grid || this.computeAltitudeGrid());
+		if (this.config.dayNight.mode === "disabled") {
+			this.onCloudsNightMask(null);
+			return;
 		}
-
-		this.onCloudsImage(this.cloudsCanvas);
+		this.buildCloudNightMask(grid || this.computeAltitudeGrid());
+		this.onCloudsNightMask(this.cloudMaskCanvas);
 	}
 
-	// Darkens the just-drawn clouds canvas on the night side, in place.
-	// Deliberately NOT done via a canvas globalCompositeOperation blend
-	// (tried "multiply", also tried "multiply" + "destination-in" to fix
-	// it) - every composite-mode blend also composites the ALPHA channel
-	// per its own Porter-Duff rule, which either flattened the clouds PNG's
-	// transparent "no cloud" background to fully opaque (a solid white
-	// ghost sphere) or, once patched, still came out visually wrong due to
-	// premultiplied-alpha rounding through two chained composite ops.
-	// Reading/writing ImageData directly sidesteps all of that: only the
-	// R/G/B channels are scaled here, alpha is copied through completely
-	// untouched, so there is no compositing math to get subtly wrong.
-	darkenCloudsNightSide(ctx, width, height, grid) {
-		this.buildCloudShadeMask(grid);
-
-		this.cloudShadeScratchCanvas.width = width;
-		this.cloudShadeScratchCanvas.height = height;
-		const scratchCtx = this.cloudShadeScratchCanvas.getContext("2d");
-		// Upscales the low-res (MASK_WIDTH x MASK_HEIGHT) shade grid to the
-		// clouds image's full resolution - a plain draw (default
-		// "source-over" onto a freshly-cleared, unrelated canvas), not a
-		// blend, so it can't touch anyone else's alpha.
-		scratchCtx.clearRect(0, 0, width, height);
-		scratchCtx.drawImage(this.cloudShadeCanvas, 0, 0, width, height);
-		const shade = scratchCtx.getImageData(0, 0, width, height).data;
-
-		const clouds = ctx.getImageData(0, 0, width, height);
-		const pixels = clouds.data;
-		for (let i = 0; i < pixels.length; i += 4) {
-			const factor = shade[i] / 255; // shade mask is grayscale: R = G = B
-			pixels[i] *= factor;
-			pixels[i + 1] *= factor;
-			pixels[i + 2] *= factor;
-			// pixels[i + 3] (alpha) intentionally left untouched
-		}
-		ctx.putImageData(clouds, 0, 0);
-	}
-
-	// Builds a multiply-darken mask: white (unchanged) on the day side,
-	// fading to gray (see CLOUDS_NIGHT_DARKEN above) on the night side.
-	buildCloudShadeMask(grid) {
-		const ctx = this.cloudShadeCanvas.getContext("2d");
+	// Black, alpha = nightAlpha * CLOUDS_NIGHT_DARKEN - transparent on the
+	// day side, fading to a translucent black shell on the night side.
+	buildCloudNightMask(grid) {
+		const ctx = this.cloudMaskCanvas.getContext("2d");
 		const imageData = ctx.createImageData(MASK_WIDTH, MASK_HEIGHT);
 		for (let i = 0; i < grid.length; i++) {
 			const idx = i * 4;
-			const shade = 255 - Math.round(nightAlpha(grid[i]) * CLOUDS_NIGHT_DARKEN);
-			imageData.data[idx] = shade;
-			imageData.data[idx + 1] = shade;
-			imageData.data[idx + 2] = shade;
-			imageData.data[idx + 3] = 255;
+			imageData.data[idx] = 0;
+			imageData.data[idx + 1] = 0;
+			imageData.data[idx + 2] = 0;
+			imageData.data[idx + 3] = Math.round(nightAlpha(grid[i]) * CLOUDS_NIGHT_DARKEN);
 		}
 		ctx.putImageData(imageData, 0, 0);
 	}

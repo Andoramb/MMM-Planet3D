@@ -63,6 +63,7 @@ Module.register("MMM-Earth3D", {
 
 	renderer: null,
 	userOverrides: null,
+	serverTimeOffsetMs: 0,
 
 	debugLog: function () {
 		if (!this.config || !this.config.debug) {
@@ -84,6 +85,15 @@ Module.register("MMM-Earth3D", {
 		// socketNotificationReceived as its callback) without needing to
 		// actually send anything.
 		this.socket();
+
+		// Asks node_helper (running on the actual MagicMirror host) for its
+		// clock, rather than trusting whatever machine's browser happens to be
+		// viewing this page - realtime dayNight needs the real world clock at
+		// the mirror, not at a laptop that opened the server remotely with a
+		// different system time/timezone. this.serverTimeOffsetMs stays 0
+		// (i.e. "trust this browser's own clock") until the reply arrives.
+		this.serverTimeOffsetMs = 0;
+		this.sendSocketNotification("EARTH3D_REQUEST_SERVER_TIME");
 
 		window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 		window.EARTH3D_PRESETS.atmosphere = this.validatePresets(window.EARTH3D_PRESETS.atmosphere, "atmosphere", ["color", "altitude"]);
@@ -403,6 +413,7 @@ Module.register("MMM-Earth3D", {
 			this.debugLog("DOM_OBJECTS_CREATED - constructing Earth3DRenderer");
 			const container = document.getElementById("earth3d-" + this.identifier);
 			this.renderer = new Earth3DRenderer(container, this.config);
+			this.renderer.setServerTimeOffset(this.serverTimeOffsetMs);
 			return;
 		}
 
@@ -419,6 +430,28 @@ Module.register("MMM-Earth3D", {
 	socketNotificationReceived: function (notification, payload) {
 		if (notification === "EARTH3D_SET_CONFIG") {
 			this.handleSetConfig("socket", payload);
+			return;
+		}
+
+		if (notification === "EARTH3D_SERVER_TIME") {
+			this.serverTimeOffsetMs = payload.now - Date.now();
+			this.debugLog("EARTH3D_SERVER_TIME", payload, "offsetMs:", this.serverTimeOffsetMs);
+			if (this.renderer) {
+				this.renderer.setServerTimeOffset(this.serverTimeOffsetMs);
+			}
+			return;
+		}
+
+		// control.html's Home page buttons (theme switch, save/duplicate/
+		// delete) need to know the actual resolved config/overrides to fill
+		// their controls and to know what "current settings" means - answered
+		// via node_helper's GET /MMM-Earth3D/config, which relays the request
+		// here and relays this reply back to the HTTP caller.
+		if (notification === "EARTH3D_REQUEST_CONFIG") {
+			this.sendSocketNotification("EARTH3D_CONFIG_STATE", {
+				config: this.config,
+				overrides: this.userOverrides
+			});
 		}
 	},
 

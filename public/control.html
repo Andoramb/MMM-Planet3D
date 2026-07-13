@@ -136,6 +136,24 @@
 	.row { margin-bottom: 10px; }
 	.sub-row { display: none; }
 	.sub-row.visible { display: block; }
+	.theme-actions { display: flex; flex-direction: column; gap: 8px; }
+	.theme-actions button {
+		background: #1c1c1c;
+		color: #eee;
+		border: 1px solid #333;
+		border-radius: 6px;
+		padding: 8px;
+		font-size: 13px;
+		cursor: pointer;
+	}
+	.theme-actions button:hover { background: #262626; }
+	#themeDeleteBtn { color: #f88; }
+	code {
+		background: #1c1c1c;
+		border-radius: 4px;
+		padding: 1px 5px;
+		font-size: 12px;
+	}
 </style>
 </head>
 <body>
@@ -167,6 +185,16 @@
 					<option value="custom">Custom (per-asset settings)</option>
 				</select>
 			</div>
+			<div class="row theme-actions">
+				<button type="button" id="themeDuplicateBtn">Duplicate current theme</button>
+				<button type="button" id="themeSaveBtn">Save current settings to theme</button>
+				<button type="button" id="themeDeleteBtn">Delete theme</button>
+			</div>
+			<p class="intro" style="margin:8px 0 0;">
+				These edit <code>presets/themes.js</code> on disk directly - the
+				running display needs a reload/restart to pick up the change,
+				same as any other preset file edit.
+			</p>
 		</fieldset>
 	</section>
 
@@ -359,27 +387,95 @@
 
 	let debounceTimer = null;
 
+	// Returns a Promise so callers that need to know the config actually
+	// settled (theme switches, the theme-management buttons) can chain
+	// .then(fetchResolvedConfig) - plain slider drags just fire-and-forget it.
 	function send (payload) {
 		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(() => {
-			fetch("/MMM-Earth3D/set-config", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify(payload)
-			})
-				.then((res) => {
-					if (!res.ok) {
-						throw new Error("Request failed (" + res.status + ")");
-					}
-					setStatus("Updated " + new Date().toLocaleTimeString());
+		return new Promise((resolve, reject) => {
+			debounceTimer = setTimeout(() => {
+				fetch("/MMM-Earth3D/set-config", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(payload)
 				})
-				.catch((err) => setStatus(err.message, true));
-		}, 120);
+					.then((res) => {
+						if (!res.ok) {
+							throw new Error("Request failed (" + res.status + ")");
+						}
+						setStatus("Updated " + new Date().toLocaleTimeString());
+						resolve();
+					})
+					.catch((err) => {
+						setStatus(err.message, true);
+						reject(err);
+					});
+			}, 120);
+		});
 	}
 
 	function setStatus (message, isError) {
 		statusEl.textContent = message;
 		statusEl.className = "status" + (isError ? " error" : "");
+	}
+
+	// --- Resolved config readback --------------------------------------
+	// The actual field-by-field resolution (theme -> preset -> override)
+	// happens client-side in MMM-Earth3D.js, in the browser tab running the
+	// real module - this page has no way to compute it itself, so instead it
+	// asks node_helper (GET /MMM-Earth3D/config), which relays the question
+	// to that module instance and answers with whatever it reports back:
+	// both the fully-resolved config and the sparse userOverrides (the
+	// "current non-default changes" the theme-management buttons below save).
+
+	let currentOverrides = {};
+
+	function fetchResolvedConfig () {
+		return fetch("/MMM-Earth3D/config")
+			.then((res) => {
+				if (!res.ok) {
+					return res.json().then((body) => {
+						throw new Error((body && body.error) || ("Request failed (" + res.status + ")"));
+					});
+				}
+				return res.json();
+			})
+			.then((state) => {
+				currentOverrides = state.overrides || {};
+				applyResolvedConfigToUI(state.config);
+			})
+			.catch((err) => setStatus(err.message, true));
+	}
+
+	function applyResolvedConfigToUI (config) {
+		themeEl.value = config.theme;
+
+		setSliderValue("rotationSpeed", config.rotationSpeed);
+		document.getElementById("quality").value = config.quality;
+
+		atmospherePresetEl.value = config.atmosphere.preset;
+		document.getElementById("atmosphereColor").value = config.atmosphere.color;
+		setSliderValue("atmosphereAltitude", Math.round(config.atmosphere.altitude * 100));
+		setSliderValue("atmosphereOpacity", Math.round(config.atmosphere.opacity * 100));
+
+		texturePresetEl.value = config.texture.preset;
+
+		cameraPresetEl.value = config.camera.preset;
+		setSliderValue("zoom", config.camera.zoom);
+		setSliderValue("rotateX", config.camera.rotate.x);
+		setSliderValue("rotateY", config.camera.rotate.y);
+		setSliderValue("rotateZ", config.camera.rotate.z);
+		setSliderValue("positionX", config.camera.position.x);
+		setSliderValue("positionY", config.camera.position.y);
+		setSliderValue("positionZ", config.camera.position.z);
+
+		dayNightModeEl.value = config.dayNight.mode;
+		setSliderValue("dayNightRotate", config.dayNight.rotate);
+		syncDayNightVisibility();
+
+		cloudsSourceEl.value = config.clouds.enabled ? config.clouds.source : "disabled";
+		setSliderValue("cloudsOpacity", Math.round(config.clouds.opacity * 100));
+		syncCloudsVisibility();
 	}
 
 	// --- Shared helpers -------------------------------------------------
@@ -630,9 +726,11 @@
 	syncCloudsVisibility();
 
 	// --- Theme --------------------------------------------------------------
-	// Selecting a theme syncs every dependent UI control (atmosphere,
-	// texture, camera) to that theme's bundle, resolved client-side from
-	// the same preset lists, before sending the single {theme: id} update.
+	// A theme can set ANY field (rotationSpeed, quality, dayNight, clouds -
+	// not just atmosphere/texture/camera), so rather than re-deriving what
+	// each one resolves to client-side (which is what this used to do, and
+	// which is exactly why fields like quality silently didn't update on a
+	// theme switch), just ask the module what it actually resolved to.
 
 	const themeEl = document.getElementById("theme");
 	const themes = window.EARTH3D_THEMES || [];
@@ -644,27 +742,81 @@
 	}
 
 	themeEl.addEventListener("change", () => {
-		if (themeEl.value === "custom") {
-			send({ theme: "custom" });
-			return;
-		}
-		const theme = themes.find((entry) => entry.id === themeEl.value);
-		if (!theme) {
-			return;
-		}
-		if (theme.atmosphere) {
-			atmospherePresetEl.value = theme.atmosphere;
-			atmospherePresetEl.dispatchEvent(new Event("change"));
-		}
-		if (theme.texture) {
-			texturePresetEl.value = theme.texture;
-		}
-		if (theme.camera) {
-			cameraPresetEl.value = theme.camera;
-			cameraPresetEl.dispatchEvent(new Event("change"));
-		}
-		send({ theme: theme.id });
+		send({ theme: themeEl.value }).then(fetchResolvedConfig);
 	});
+
+	// --- Theme management (Duplicate / Save / Delete) -----------------------
+	// Reads/rewrites presets/themes.js on the server via POST
+	// /MMM-Earth3D/theme (node_helper.js) - only affects the FILE, so the
+	// currently-running display needs a reload/restart to see it (same as
+	// hand-editing any other presets/*.js file). Reloading this control page
+	// after a successful edit is enough to see it here immediately, since
+	// presets/themes.js is just a plain <script> tag.
+
+	function postThemeAction (body) {
+		return fetch("/MMM-Earth3D/theme", {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(body)
+		})
+			.then((res) => res.json().then((data) => {
+				if (!res.ok) {
+					throw new Error(data.error || ("Request failed (" + res.status + ")"));
+				}
+				return data;
+			}))
+			.then((data) => {
+				setStatus(data.message || "Theme updated");
+				window.location.reload();
+			})
+			.catch((err) => setStatus(err.message, true));
+	}
+
+	document.getElementById("themeDuplicateBtn").addEventListener("click", () => {
+		const sourceId = themeEl.value;
+		if (sourceId === "custom") {
+			setStatus("Pick a theme first - \"Custom\" isn't a stored theme to duplicate", true);
+			return;
+		}
+		const source = themes.find((entry) => entry.id === sourceId);
+		const name = window.prompt("Name for the new theme?", source ? source.name + " copy" : "");
+		if (!name) {
+			return;
+		}
+		postThemeAction({ action: "duplicate", sourceId, name });
+	});
+
+	document.getElementById("themeSaveBtn").addEventListener("click", () => {
+		const themeId = themeEl.value;
+		if (themeId === "custom") {
+			setStatus("Pick a theme first - \"Custom\" isn't a stored theme to save into", true);
+			return;
+		}
+		const theme = themes.find((entry) => entry.id === themeId);
+		if (!window.confirm('Save the current settings into "' + (theme ? theme.name : themeId) + '"? This overwrites whatever it currently has for the fields you\'ve changed.')) {
+			return;
+		}
+		postThemeAction({ action: "save", themeId, overrides: currentOverrides });
+	});
+
+	document.getElementById("themeDeleteBtn").addEventListener("click", () => {
+		const themeId = themeEl.value;
+		if (themeId === "custom") {
+			setStatus("\"Custom\" isn't a stored theme - nothing to delete", true);
+			return;
+		}
+		const theme = themes.find((entry) => entry.id === themeId);
+		if (!window.confirm('Delete theme "' + (theme ? theme.name : themeId) + '"? This can\'t be undone.')) {
+			return;
+		}
+		postThemeAction({ action: "delete", themeId });
+	});
+
+	// --- Initial sync ---------------------------------------------------
+	// Reflects whatever the module actually started with (config.js
+	// defaults/overrides, or a configured startup theme) instead of this
+	// page's own hardcoded HTML defaults.
+	fetchResolvedConfig();
 })();
 </script>
 

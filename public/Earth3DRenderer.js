@@ -83,6 +83,8 @@ class Earth3DRenderer {
 		this.cloudsLayer = null;
 		this.destroyed = false;
 		this.animating = false;
+		this.serverTimeOffsetMs = 0;
+		this.pendingCloudsNightMask = null;
 
 		const { rotate, position } = config.camera;
 		this.tiltX = new TweenedValue(rotate.x);
@@ -208,6 +210,12 @@ class Earth3DRenderer {
 						this.applyCloudsImage(image);
 					}
 				},
+				(maskImage) => {
+					this.pendingCloudsNightMask = maskImage;
+					if (this.cloudsLayer) {
+						this.cloudsLayer.setNightMask(maskImage);
+					}
+				},
 				(path) => this.assetPath(path)
 			);
 		}
@@ -329,6 +337,18 @@ class Earth3DRenderer {
 		this.compositor.applyCloudsConfig();
 	}
 
+	// Called once MMM-Earth3D.js hears back from node_helper with the actual
+	// MagicMirror host's clock (see its EARTH3D_SERVER_TIME handler) - kept
+	// here too (not just forwarded straight to the compositor) since the
+	// compositor might not exist yet if this arrives before DOM_OBJECTS_CREATED.
+	setServerTimeOffset(offsetMs) {
+		this.debugLog("setServerTimeOffset", offsetMs);
+		this.serverTimeOffsetMs = offsetMs;
+		if (this.compositor) {
+			this.compositor.setServerTimeOffset(offsetMs);
+		}
+	}
+
 	resolveTextureUrls() {
 		const texture = this.config.texture;
 		if (texture.preset === "custom" && texture.imageUrl) {
@@ -388,6 +408,7 @@ class Earth3DRenderer {
 				if (this.pendingCloudsImage) {
 					this.applyCloudsImage(this.pendingCloudsImage);
 				}
+				this.cloudsLayer.setNightMask(this.pendingCloudsNightMask);
 				if (this.globeObject3D) {
 					this.cloudsLayer.attachTo(this.globeObject3D);
 				}
