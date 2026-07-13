@@ -123,9 +123,19 @@ class TweenedValue {
 }
 
 class Earth3DRenderer {
-	constructor(container, config) {
+	constructor(container, config, cacheBust) {
 		this.container = container;
 		this.config = config;
+		// Only applied to CloudsLayer.mjs's own import (see ensureCloudsLayer()) -
+		// deliberately NOT applied to three.module.min.js/three-globe.mjs/
+		// OrbitControls.js in loadThreeGlobeDeps() below, since those three
+		// cross-reference each other via fixed relative specifiers with no
+		// query string; cache-busting only one of those outer import() calls
+		// would make it resolve to a DIFFERENT module instance than what the
+		// others still see internally, fragmenting the single-shared-THREE
+		// guarantee this migration was largely about. Those three rarely
+		// change (only on a deliberate re-vendor), unlike CloudsLayer.mjs.
+		this.cacheBust = cacheBust ? ("?v=" + cacheBust) : "";
 
 		this.THREE = null;
 		this.ThreeGlobeCtor = null;
@@ -508,7 +518,7 @@ class Earth3DRenderer {
 		// URL (not the page's, and not MM's basePath config) since dynamic
 		// import() in a classic script uses the referencing script's base URL
 		// - CloudsLayer.mjs sits right next to this file, so "./" is enough.
-		import("./CloudsLayer.mjs")
+		import("./CloudsLayer.mjs" + this.cacheBust)
 			.then((module) => {
 				this.cloudsLayerImporting = false;
 				if (this.destroyed || this.cloudsLayer) {
