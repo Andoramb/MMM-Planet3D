@@ -28,6 +28,11 @@ const ZOOM_ALTITUDE_MAX = 5; // 0   -> far
 // Live config changes ease in over this long instead of jumping.
 const TRANSITION_MS = 700;
 
+// centerOnCity()'s one-shot spin animation - longer than TRANSITION_MS since
+// it can cover up to a half-turn of the globe and reads better as a
+// deliberate "rotating into position" motion than a snap.
+const CENTER_ON_CITY_TRANSITION_MS = 2000;
+
 // How often to check whether another opaque layer (e.g. a sibling
 // fullscreen_below module stacked on top in the DOM) is fully covering the
 // globe. A plain interval instead of a per-frame check since this only needs
@@ -84,19 +89,28 @@ const AMBIENT_LIGHT_INTENSITY = Math.PI;
 const KEY_LIGHT_COLOR = 0xffffff;
 const KEY_LIGHT_INTENSITY = 0.6 * Math.PI;
 
-// Loads three-globe + OrbitControls, both real ES modules statically
-// importing this project's own vendored Three.js by relative path (see
-// public/vendor/three-globe.mjs's generating script and OrbitControls.js's
-// header comment) - so this, CloudsLayer.mjs, and three-globe.mjs itself all
-// end up sharing the exact same Three.js instance, with no window globals
-// involved anywhere in the chain.
+// Loads three-globe + OrbitControls + CSS2DRenderer, all real ES modules
+// statically importing this project's own vendored Three.js by relative path
+// (see public/vendor/three-globe.mjs's generating script and
+// OrbitControls.js's header comment) - so this, CloudsLayer.mjs, and
+// three-globe.mjs itself all end up sharing the exact same Three.js instance,
+// with no window globals involved anywhere in the chain. CSS2DRenderer is
+// what actually mounts three-globe's htmlElementsData markers (the city
+// label - see applyCity()) into the DOM; three-globe's own vendored bundle
+// only creates the CSS2DObject scene nodes, it doesn't render them anywhere.
 async function loadThreeGlobeDeps() {
-	const [THREE, threeGlobeModule, orbitControlsModule] = await Promise.all([
+	const [THREE, threeGlobeModule, orbitControlsModule, css2DModule] = await Promise.all([
 		import("./vendor/three.module.min.js"),
 		import("./vendor/three-globe.mjs"),
-		import("./vendor/OrbitControls.js")
+		import("./vendor/OrbitControls.js"),
+		import("./vendor/CSS2DRenderer.js")
 	]);
-	return { THREE, ThreeGlobe: threeGlobeModule.default, OrbitControls: orbitControlsModule.OrbitControls };
+	return {
+		THREE,
+		ThreeGlobe: threeGlobeModule.default,
+		OrbitControls: orbitControlsModule.OrbitControls,
+		CSS2DRenderer: css2DModule.CSS2DRenderer
+	};
 }
 
 // Eases a single number from its current value to a target over a fixed
@@ -152,8 +166,10 @@ class Earth3DRenderer {
 		this.THREE = null;
 		this.ThreeGlobeCtor = null;
 		this.OrbitControlsCtor = null;
+		this.CSS2DRendererCtor = null;
 
 		this.renderer = null;
+		this.cssRenderer = null;
 		this.scene = null;
 		this.camera = null;
 		this.controls = null;
@@ -178,6 +194,11 @@ class Earth3DRenderer {
 		this.zoomAltitude = new TweenedValue(this.zoomToAltitude(config.camera.zoom));
 		this.spinRate = new TweenedValue(rotationSpeedToDegPerSec(config.rotationSpeed));
 		this.spinAngle = 0;
+		// Set by centerOnCity() - a one-shot override that drives spinAngle to
+		// a computed target over CENTER_ON_CITY_TRANSITION_MS, pausing the
+		// normal spinRate accumulation until it arrives (see tick()), then
+		// clears itself so normal spin resumes from wherever it landed.
+		this.spinOverrideTween = null;
 		this.lastFrameTime = null;
 
 		this.init();
@@ -236,6 +257,9 @@ class Earth3DRenderer {
 		}
 		const size = this.getContainerSize();
 		this.renderer.setSize(size.width, size.height, false);
+		if (this.cssRenderer) {
+			this.cssRenderer.setSize(size.width, size.height);
+		}
 		this.camera.aspect = size.width / size.height;
 		this.camera.updateProjectionMatrix();
 	}
@@ -254,6 +278,7 @@ class Earth3DRenderer {
 				this.THREE = deps.THREE;
 				this.ThreeGlobeCtor = deps.ThreeGlobe;
 				this.OrbitControlsCtor = deps.OrbitControls;
+				this.CSS2DRendererCtor = deps.CSS2DRenderer;
 			} catch (err) {
 				Log.error("MMM-Earth3D: failed to load three-globe/OrbitControls (" + err.message + ") - globe will not render");
 				return;
@@ -264,6 +289,7 @@ class Earth3DRenderer {
 		}
 
 		this.createRenderer(quality, size);
+		this.createCssRenderer(size);
 		this.createScene();
 		this.createGlobe(textures, quality);
 		this.createCamera(size);
@@ -273,6 +299,7 @@ class Earth3DRenderer {
 		this.applyAtmosphere();
 		this.applyZoom();
 		this.applyBackground();
+		this.applyCity();
 
 		this.ensureCloudsLayer();
 
@@ -313,6 +340,23 @@ class Earth3DRenderer {
 		this.renderer.setPixelRatio(Math.min(quality.maxPixelRatio, window.devicePixelRatio));
 		this.renderer.setSize(size.width, size.height, false);
 		this.container.appendChild(this.renderer.domElement);
+	}
+
+	// Overlays the WebGL canvas with a same-sized DOM layer that three-globe's
+	// htmlElementsData markers (the city label - see applyCity()) get mounted
+	// into each frame (see tick()). Positioned absolute over the canvas -
+	// css/MMM-Earth3D.css puts `position: relative` on the container so that's
+	// relative to the globe, not the page. pointer-events: none so it never
+	// blocks the occlusion check in checkOcclusion() or (on setups that enable
+	// it) OrbitControls' own mouse/touch handling on the canvas beneath it.
+	createCssRenderer(size) {
+		this.cssRenderer = new this.CSS2DRendererCtor();
+		this.cssRenderer.setSize(size.width, size.height);
+		this.cssRenderer.domElement.style.position = "absolute";
+		this.cssRenderer.domElement.style.top = "0";
+		this.cssRenderer.domElement.style.left = "0";
+		this.cssRenderer.domElement.style.pointerEvents = "none";
+		this.container.appendChild(this.cssRenderer.domElement);
 	}
 
 	createScene() {
@@ -538,6 +582,97 @@ class Earth3DRenderer {
 		}
 	}
 
+	// city.lat/lng are already resolved (name -> coordinates, via
+	// presets/cities.js) by MMM-Earth3D.js's resolveCity() before this is
+	// called - this class never looks the name up itself. A single
+	// htmlElementsData entry rather than three-globe's own pointsData/
+	// labelsData layers so the whole marker (dot + label) is one real DOM
+	// element, styleable from css/MMM-Earth3D.css (.earth3d-city-marker/
+	// -dot/-label) instead of baked-in 3D text geometry.
+	applyCity() {
+		if (!this.threeGlobeObj) {
+			return;
+		}
+		const city = this.config.city;
+		this.debugLog("applyCity", city);
+		if (!city || city.lat === null || city.lng === null) {
+			this.threeGlobeObj.htmlElementsData([]);
+			return;
+		}
+		this.threeGlobeObj
+			.htmlElementsData([city])
+			.htmlLat("lat")
+			.htmlLng("lng")
+			.htmlAltitude(0.01)
+			.htmlElement(() => this.createCityMarkerElement(city));
+	}
+
+	createCityMarkerElement(city) {
+		const el = document.createElement("div");
+		el.className = "earth3d-city-marker";
+		const dot = document.createElement("span");
+		dot.className = "earth3d-city-dot";
+		const label = document.createElement("span");
+		label.className = "earth3d-city-label";
+		label.textContent = city.matchedName || city.name;
+		el.append(dot, label);
+		return el;
+	}
+
+	// Eases the globe's spin so the given lat/lng ends up facing the camera,
+	// without stopping or resetting the normal auto-rotation - it resumes
+	// from wherever this lands (see the spinOverrideTween handling in tick()).
+	//
+	// Only spinAngle (rotation around the globe's own local Y axis, applied
+	// before the fixed camera.rotate tilt - see tick()'s
+	// threeGlobeObj.rotation.set()+rotateY() pair) is adjustable here; tilt
+	// itself is left alone. Conjugating by the tilt quaternion turns that
+	// into "rotate around a FIXED world-space axis" (the tilted polar axis),
+	// which is what makes solving for the needed angle tractable: project the
+	// city's tilted-but-unspun position and the camera direction onto the
+	// plane perpendicular to that axis, and the signed angle between those
+	// two projections is exactly the spin needed to bring them into
+	// alignment. If the city sits on (or very near) that axis - e.g. a pole
+	// under a heavily tilted globe - its azimuth is undefined and there's
+	// nothing meaningful to solve for, so this just leaves spin alone.
+	centerOnCity(lat, lng) {
+		if (!this.threeGlobeObj || !this.camera || !this.THREE || typeof lat !== "number" || typeof lng !== "number") {
+			return;
+		}
+		const THREE = this.THREE;
+		const { rotate } = this.config.camera;
+		const tiltQuat = new THREE.Quaternion().setFromEuler(
+			new THREE.Euler(degToRad(rotate.x), degToRad(rotate.y), degToRad(rotate.z), "XYZ")
+		);
+		const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(tiltQuat);
+
+		const coords = this.threeGlobeObj.getCoords(lat, lng, 0);
+		const tiltedCity = new THREE.Vector3(coords.x, coords.y, coords.z).applyQuaternion(tiltQuat);
+		const toCamera = this.camera.position.clone().sub(this.threeGlobeObj.position).normalize();
+
+		const projectOnPlane = (v) => v.clone().sub(axis.clone().multiplyScalar(v.dot(axis)));
+		const cityPerp = projectOnPlane(tiltedCity);
+		const cameraPerp = projectOnPlane(toCamera);
+		if (cityPerp.lengthSq() < 1e-6 || cameraPerp.lengthSq() < 1e-6) {
+			this.debugLog("centerOnCity: azimuth undefined (city on tilt axis) - leaving spin alone", { lat, lng });
+			return;
+		}
+
+		const targetAngle = Math.atan2(
+			new THREE.Vector3().crossVectors(cityPerp, cameraPerp).dot(axis),
+			cityPerp.dot(cameraPerp)
+		);
+
+		// targetAngle is the ABSOLUTE spin (from zero) that centers the city -
+		// spinAngle itself accumulates without wrapping, so pick whichever
+		// full-turn offset of targetAngle is nearest to the current
+		// spinAngle, for the shortest visible rotation either direction.
+		const twoPi = Math.PI * 2;
+		const target = targetAngle + Math.round((this.spinAngle - targetAngle) / twoPi) * twoPi;
+		this.debugLog("centerOnCity", { lat, lng, from: this.spinAngle, to: target });
+		this.spinOverrideTween = { from: this.spinAngle, to: target, startTime: performance.now(), duration: CENTER_ON_CITY_TRANSITION_MS };
+	}
+
 	// Called once MMM-Earth3D.js hears back from node_helper with the actual
 	// MagicMirror host's clock (see its EARTH3D_SERVER_TIME handler) - kept
 	// here too (not just forwarded straight to the compositor) since the
@@ -646,7 +781,15 @@ class Earth3DRenderer {
 		this.posZ.update(now);
 		this.spinRate.update(now);
 		this.zoomAltitude.update(now);
-		this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
+		if (this.spinOverrideTween) {
+			const t = Math.min((now - this.spinOverrideTween.startTime) / this.spinOverrideTween.duration, 1);
+			this.spinAngle = this.spinOverrideTween.from + (this.spinOverrideTween.to - this.spinOverrideTween.from) * easeInOutCubic(t);
+			if (t >= 1) {
+				this.spinOverrideTween = null;
+			}
+		} else {
+			this.spinAngle += degToRad(this.spinRate.current) * deltaSeconds;
+		}
 		if (this.cloudsLayer) {
 			this.cloudsLayer.tick(now);
 		}
@@ -684,6 +827,9 @@ class Earth3DRenderer {
 
 		if (this.renderer && this.scene && this.camera && !this.occluded) {
 			this.renderer.render(this.scene, this.camera);
+			if (this.cssRenderer) {
+				this.cssRenderer.render(this.scene, this.camera);
+			}
 		}
 
 		requestAnimationFrame((t) => this.tick(t));
@@ -747,6 +893,12 @@ class Earth3DRenderer {
 				this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
 			}
 			this.renderer = null;
+		}
+		if (this.cssRenderer) {
+			if (this.cssRenderer.domElement && this.cssRenderer.domElement.parentNode) {
+				this.cssRenderer.domElement.parentNode.removeChild(this.cssRenderer.domElement);
+			}
+			this.cssRenderer = null;
 		}
 		this.scene = null;
 		this.camera = null;

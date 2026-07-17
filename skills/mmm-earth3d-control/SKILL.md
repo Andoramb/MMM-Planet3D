@@ -1,6 +1,6 @@
 ---
 name: mmm-earth3d-control
-description: Control a running MMM-Earth3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, or manage saved themes. Use when asked to change, tune, animate, or inspect the Earth3D globe display.
+description: Control a running MMM-Earth3D 3D globe module (MagicMirror) over its local HTTP API — change theme, camera, atmosphere, texture, background, quality, day/night, clouds, rotation speed, highlight/center a city, or manage saved themes. Use when asked to change, tune, animate, or inspect the Earth3D globe display.
 metadata:
   base_url: http://192.168.1.42:8090
 ---
@@ -34,6 +34,7 @@ with these top-level fields:
 | `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y,z} }` |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
 | `clouds` | object | `{ enabled, source: "static"\|"realtime", opacity }` |
+| `city` | object | `{ name, center }` — labeled marker (dot + text) on a named city; `center: true` is a one-shot action, not persisted state (see below) |
 
 You change it by **POSTing a sparse partial** — only include the fields you
 want to change. Everything else keeps its current value. Send `null` for a
@@ -78,6 +79,27 @@ curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
 curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
   -H "content-type: application/json" \
   -d '{"rotationSpeed": 0}'
+
+# Highlight a city (dot + label marker), without moving the camera
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+  -H "content-type: application/json" \
+  -d '{"city": {"name": "Tokyo"}}'
+
+# Rotate the globe (auto-spin keeps running, it just eases toward this
+# orientation) so the currently-configured city ends up centered on screen
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+  -H "content-type: application/json" \
+  -d '{"city": {"center": true}}'
+
+# Set and center in one request
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+  -H "content-type: application/json" \
+  -d '{"city": {"name": "Sydney", "center": true}}'
+
+# Clear the city marker
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+  -H "content-type: application/json" \
+  -d '{"city": {"name": ""}}'
 ```
 
 Response: `{"success": true}` (fire-and-forget — the server relays the
@@ -92,6 +114,15 @@ rendering the globe; it does not wait for the browser to apply it).
 - A field set once (e.g. `camera.zoom`) stays pinned at that value across
   future theme switches until explicitly reset with `null` — it "wins" over
   any theme by design.
+- `city.name` is matched case-insensitively against a bundled city list
+  (exact match, then prefix, then substring), no geocoding API involved -
+  see `GET /MMM-Earth3D/config`'s `config.city` below to check what actually
+  matched (or `matchedName: null` if nothing did - an unrecognized name
+  clears the marker rather than erroring). `city.center` is a **one-shot
+  action**, not a stored value - it's never reflected back in
+  `GET /MMM-Earth3D/config`'s `overrides`, and switching `theme` never
+  clears a configured city marker (unlike every other field in the table
+  above).
 
 ### 2. `GET /MMM-Earth3D/config` — read current resolved state
 
@@ -106,10 +137,12 @@ curl -sS http://192.168.1.42:8090/MMM-Earth3D/config
 Response shape:
 ```json
 {
-  "config": { "rotationSpeed": 20, "quality": "medium", "atmosphere": {...}, "texture": {...}, "camera": {...}, "dayNight": {...}, "clouds": {...} },
+  "config": { "rotationSpeed": 20, "quality": "medium", "atmosphere": {...}, "texture": {...}, "camera": {...}, "dayNight": {...}, "clouds": {...}, "city": {"name": "Tokyo", "lat": 35.6762, "lng": 139.6503, "matchedName": "Tokyo"} },
   "overrides": { "rotationSpeed": undefined, "atmosphere": null, "camera": {"zoom": 80}, ... }
 }
 ```
+`config.city.lat`/`lng` are `null` (and `matchedName` is `null`) when `name`
+is empty or didn't match anything in the bundled list.
 Use this before/after a `set-config` call to confirm what actually applied,
 or to read current state before computing a relative change (e.g. "zoom in
 10 more" requires reading current `camera.zoom` first, then POSTing
@@ -215,4 +248,10 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **"Make it look like <theme name>":** `{"theme": "<id>"}` from the table above.
 
-**"Go back to normal/default":** `{"theme": "custom"}` alone is enough — switching theme resets every field's override (rotationSpeed, quality, atmosphere, texture, background, camera, dayNight, clouds) back to its config.js/module default, as long as that same request doesn't also set one of those fields directly.
+**"Highlight/show/mark <city>":** `{"city": {"name": "<city>"}}`.
+
+**"Center the globe on <city>" / "rotate to <city>":** `{"city": {"name": "<city>", "center": true}}` (omit `name` to just recenter on whatever city is already marked).
+
+**"Remove/clear the city marker":** `{"city": {"name": ""}}`.
+
+**"Go back to normal/default":** `{"theme": "custom"}` alone is enough — switching theme resets every field's override (rotationSpeed, quality, atmosphere, texture, background, camera, dayNight, clouds) back to its config.js/module default, as long as that same request doesn't also set one of those fields directly. This does **not** clear a city marker - use `{"city": {"name": ""}}` for that separately.

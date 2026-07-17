@@ -57,6 +57,10 @@ Module.register("MMM-Earth3D", {
 			opacity: 0.8 // 0-1
 		},
 
+		city: {
+			name: "" // matched case-insensitively against presets/cities.js by findCity() below. Empty = no marker.
+		},
+
 		debug: false // logs every live-config notification and apply*() call to the browser console via Log.info
 	},
 
@@ -156,6 +160,7 @@ Module.register("MMM-Earth3D", {
 			this.file("presets/earthTextures.js"),
 			this.file("presets/backgrounds.js"),
 			this.file("presets/camera.js"),
+			this.file("presets/cities.js"),
 			this.file("presets/themes.js"),
 			this.file("presets/themes-user.js"),
 			this.file("public/EarthCompositor.js"),
@@ -229,7 +234,8 @@ Module.register("MMM-Earth3D", {
 			background: this.captureOverride("background"),
 			camera: this.captureOverride("camera", ["rotate", "position"]),
 			dayNight: this.captureOverride("dayNight"),
-			clouds: this.captureOverride("clouds")
+			clouds: this.captureOverride("clouds"),
+			city: this.captureOverride("city")
 		};
 	},
 
@@ -268,6 +274,26 @@ Module.register("MMM-Earth3D", {
 		this.resolveAssetConfig("camera", theme, ["rotate", "position"]);
 		this.resolveDirectConfig("dayNight", theme, []);
 		this.resolveDirectConfig("clouds", theme, []);
+		this.resolveCity();
+	},
+
+	// city isn't preset/theme-driven like the asset configs above - just a
+	// name to look up in window.EARTH3D_CITIES (presets/cities.js) via
+	// findCity() below. Resolves to lat/lng (or null if no match) so
+	// Earth3DRenderer never needs to know about the lookup table itself.
+	resolveCity: function () {
+		const override = this.userOverrides.city;
+		const name = (override && override.name !== undefined) ? override.name : this.defaults.city.name;
+		const match = name ? findCity(name) : null;
+		if (name && !match) {
+			Log.warn(this.name + ': no city found matching "' + name + '"');
+		}
+		this.config.city = {
+			name,
+			lat: match ? match.lat : null,
+			lng: match ? match.lng : null,
+			matchedName: match ? match.name : null
+		};
 	},
 
 	// Plain top-level values (rotationSpeed, quality): override > theme > default.
@@ -560,7 +586,21 @@ Module.register("MMM-Earth3D", {
 		const dayNightChanged = Boolean(partial.dayNight);
 		const cloudsChanged = Boolean(partial.clouds);
 
-		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, backgroundChanged, cameraChanged, dayNightChanged, cloudsChanged, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
+		// "center" is a one-shot action ("recenter the globe on this city
+		// now"), not persisted state - stripped out here so it never ends up
+		// baked into userOverrides.city (which would otherwise re-trigger a
+		// recenter on every future theme/config resolve). city.name with no
+		// "center" just places/updates the marker without moving the camera;
+		// {"city": {"center": true}} alone recenters on whatever city is
+		// already configured, no name required.
+		const cityPatch = partial.city ? Object.assign({}, partial.city) : null;
+		const shouldCenterCity = Boolean(cityPatch && cityPatch.center);
+		if (cityPatch) {
+			delete cityPatch.center;
+		}
+		const cityChanged = Boolean(cityPatch && Object.keys(cityPatch).length > 0);
+
+		this.debugLog("applyLiveConfig flags", { themeChanged, atmosphereChanged, textureChanged, backgroundChanged, cameraChanged, dayNightChanged, cloudsChanged, cityChanged, shouldCenterCity, rotationSpeedChanged: partial.rotationSpeed !== undefined, qualityChanged: partial.quality !== undefined });
 
 		if (atmosphereChanged) {
 			this.mergeOverride("atmosphere", partial.atmosphere, []);
@@ -580,11 +620,14 @@ Module.register("MMM-Earth3D", {
 		if (cloudsChanged) {
 			this.mergeOverride("clouds", partial.clouds, []);
 		}
+		if (cityChanged) {
+			this.mergeOverride("city", cityPatch, []);
+		}
 
 		const previousQuality = this.config.quality;
 
 		if (themeChanged || atmosphereChanged || textureChanged || backgroundChanged || cameraChanged
-			|| dayNightChanged || cloudsChanged
+			|| dayNightChanged || cloudsChanged || cityChanged
 			|| partial.rotationSpeed !== undefined || partial.quality !== undefined) {
 			this.resolveConfig();
 			this.debugLog("resolved config after applyLiveConfig", JSON.stringify(this.config));
@@ -611,6 +654,16 @@ Module.register("MMM-Earth3D", {
 		}
 		if (themeChanged || cloudsChanged) {
 			this.renderer.applyClouds();
+		}
+		if (cityChanged) {
+			this.renderer.applyCity();
+		}
+		// Runs after applyCity() so a combined {"city": {"name": ..., "center":
+		// true}} request centers on the marker it just placed, not the
+		// previous one - resolveConfig() above already re-resolved
+		// this.config.city.lat/lng for the new name by this point.
+		if (shouldCenterCity && this.config.city.lat !== null) {
+			this.renderer.centerOnCity(this.config.city.lat, this.config.city.lng);
 		}
 		if (this.config.quality !== previousQuality) {
 			this.renderer.applyQuality();
@@ -643,4 +696,20 @@ function normalizeVec3(value) {
 		result.z = value[2];
 	}
 	return result;
+}
+
+// Looks up config.city.name in window.EARTH3D_CITIES (presets/cities.js),
+// case-insensitively: exact match first, then prefix, then substring - so
+// "tokyo", "Tok", and "new tok" (-> "New York") all resolve to something
+// reasonable rather than requiring an exact bundled name.
+function findCity(query) {
+	const cities = window.EARTH3D_CITIES || [];
+	const needle = String(query).trim().toLowerCase();
+	if (!needle) {
+		return null;
+	}
+	return cities.find((city) => city.name.toLowerCase() === needle)
+		|| cities.find((city) => city.name.toLowerCase().startsWith(needle))
+		|| cities.find((city) => city.name.toLowerCase().includes(needle))
+		|| null;
 }

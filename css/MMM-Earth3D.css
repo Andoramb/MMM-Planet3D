@@ -6,6 +6,11 @@
 	   its canvas, since non-hit-testable elements are excluded from that
 	   lookup - it would always read as "occluded" and stay paused forever. */
 	pointer-events: auto;
+	/* Positioning context for the CSS2DRenderer overlay (city marker) that
+	   Earth3DRenderer.js's createCssRenderer() absolutely-positions on top of
+	   the WebGL canvas - .MMM-Earth3D--fullscreen below already establishes
+	   one via position:fixed, this covers the fixed-size case too. */
+	position: relative;
 }
 
 .MMM-Earth3D--fullscreen {
@@ -14,4 +19,27 @@
 	left: 0;
 	width: 100vw;
 	height: 100vh;
+}
+
+/* City marker (config.city.name - see Earth3DRenderer.js's applyCity()).
+   A real DOM element (CSS2DRenderer), not a canvas-drawn label, specifically
+   so it's styleable here rather than baked into WebGL geometry. */
+.earth3d-city-marker {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: sans-serif;
+	font-size: 14px;
+	color: #fff;
+	text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+	white-space: nowrap;
+}
+
+.earth3d-city-dot {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: #ff5050;
+	box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
 }

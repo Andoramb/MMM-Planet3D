@@ -14,7 +14,7 @@ Status: **under active development** (scaffold stage).
 - [x] Cloud layer (static Blue Marble + realtime NASA GIBS)
 - [x] Day/night terminator (realtime sun position + fixed custom angle)
 - [ ] City lights
-- [ ] Gothenburg location marker
+- [x] City location marker (see [City marker](#city-marker)) - any bundled city, not just Gothenburg
 - [ ] Home Assistant MQTT data
 - [ ] Weather overlay
 - [ ] Moon phase
@@ -68,6 +68,9 @@ directory's README for why, and how to regenerate it after a version bump).
 			enabled: false,
 			source: "static",
 			opacity: 0.8
+		},
+		city: {
+			name: ""
 		}
 	}
 }
@@ -96,6 +99,7 @@ directory's README for why, and how to regenerate it after a version bump).
 | `clouds.enabled`         | boolean | `false` | Whether to show the cloud layer. |
 | `clouds.source`          | string | `"static"` | `"static"` (vendored Blue Marble clouds, no network) \| `"realtime"` (fetched from NASA GIBS, polled every 24h - see [Clouds](#daynight-and-clouds) below). Only used when `enabled` is `true`. |
 | `clouds.opacity`         | number | `0.8`   | `0` (invisible) to `1` (fully opaque). |
+| `city.name`              | string | `""`    | A city name, matched case-insensitively against `presets/cities.js` (exact, then prefix, then substring match). Shows a dot + label marker at that location; empty string shows no marker. See [City marker](#city-marker). |
 | `debug`                  | boolean | `false` | Logs every live-config notification (arrival, resolved config, which `apply*()` calls fired) to the browser console via `Log.info`. The node_helper side always logs incoming `/MMM-Earth3D/set-config` requests regardless of this flag - useful for telling "never reached the server" apart from "arrived but the browser dropped it" when a live-tune silently does nothing. |
 
 ### Themes
@@ -234,20 +238,56 @@ as [three-globe's own official clouds example](https://github.com/vasturiano/thr
 
   The atmosphere glow is *not* shaded this way - three-globe's atmosphere is a single-color shader shell around the whole globe, not a texture, so it has no per-longitude "night side" to darken without forking that shader.
 
+### City marker
+
+`city.name` places a dot + text-label marker at a named city, matched
+against the bundled `presets/cities.js` lookup table (a few hundred world
+capitals/major cities with hand-entered coordinates) - like the earth
+textures in `public/img/`, this is vendored rather than a live geocoding API
+call, so it works with no runtime internet dependency. Add your own entries
+to `presets/cities.js` for anywhere not already covered.
+
+Unlike three-globe's own `pointsData`/`labelsData` layers (3D geometry -
+`CylinderGeometry` dots and `TextGeometry` text, styled only via three-globe's
+own JS API), the marker is a real HTML element mounted over the WebGL canvas
+via a vendored [`CSS2DRenderer`](https://github.com/mrdoob/three.js/blob/master/examples/jsm/renderers/CSS2DRenderer.js)
+(`public/vendor/CSS2DRenderer.js`, same three.js r185 instance as
+everything else - see `public/Earth3DRenderer.js`'s `createCssRenderer()`),
+set via three-globe's `htmlElementsData`. That's what makes it stylable from
+CSS: `.earth3d-city-marker` (the wrapper), `.earth3d-city-dot`, and
+`.earth3d-city-label` in `css/MMM-Earth3D.css`.
+
+A separate one-shot action - `{"city": {"center": true}}` over
+`EARTH3D_SET_CONFIG`/`set-config`, or the "Center on this city" button on the
+control panel's Layers page - eases the globe's spin so that city ends up
+facing the camera, without stopping or resetting the normal auto-rotation
+(`rotationSpeed` keeps running from wherever the globe lands). This solves
+for the spin angle analytically (`Earth3DRenderer.js`'s `centerOnCity()`):
+conjugating the target rotation by the fixed `camera.rotate` tilt turns
+"rotate around the globe's own tilted polar axis" into "rotate around a
+fixed world-space axis", which reduces to projecting the city's position and
+the camera direction onto the plane perpendicular to that axis and finding
+the signed angle between them - the same trick used to align any vector to
+another via rotation about a fixed axis.
+
 ## Live tuning (no restart or reload)
 
 `theme`, `rotationSpeed`, `atmosphere`, `texture`, `background`, `camera`,
-`quality`, `dayNight`, and `clouds` can all be changed on the running globe without
-editing `config.js` or restarting MagicMirror, by sending an
+`quality`, `dayNight`, `clouds`, and `city` can all be changed on the running
+globe without editing `config.js` or restarting MagicMirror, by sending an
 `EARTH3D_SET_CONFIG` notification with a partial config object as payload -
 the same resolution order described above applies, so `{"theme": "nasa"}` or
 `{"camera": {"preset": "close-up"}}` or `{"atmosphere": {"altitude": 0.22}}`
-or `{"clouds": {"enabled": true, "source": "realtime"}}` are all valid on
-their own. Every camera/atmosphere/rotationSpeed property eases smoothly to
-its new value over ~0.7s instead of jumping; `quality` rebuilds the WebGL
-context (antialiasing can't be toggled live) and so changes instantly, and
-`dayNight`/`clouds` changes take effect on their next recompute (near-instant
-for mode/enabled changes, or the next successful fetch for clouds sources).
+or `{"clouds": {"enabled": true, "source": "realtime"}}` or
+`{"city": {"name": "Tokyo", "center": true}}` are all valid on their own.
+Every camera/atmosphere/rotationSpeed property eases smoothly to its new
+value over ~0.7s instead of jumping; `quality` rebuilds the WebGL context
+(antialiasing can't be toggled live) and so changes instantly; `dayNight`/
+`clouds` changes take effect on their next recompute (near-instant for
+mode/enabled changes, or the next successful fetch for clouds sources); and
+`city.center` (a one-shot action, not persisted state - see
+[City marker](#city-marker)) eases the globe's spin to the requested city
+over ~2s.
 
 Any field can be reset back to its theme/preset-derived value (instead of
 whatever you last set it to) by sending `null` for that field, e.g.
