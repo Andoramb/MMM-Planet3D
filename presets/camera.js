@@ -9,7 +9,7 @@ window.EARTH3D_PRESETS.camera = [
 		camera: {
 			zoom: 50,
 			rotate: { x: 0, y: 0, z: 0 },
-			position: { x: 0, y: 0, z: 0 }
+			position: { x: 0, y: 0 }
 		}
 	},
 	{
@@ -18,7 +18,7 @@ window.EARTH3D_PRESETS.camera = [
 		camera: {
 			zoom: 85,
 			rotate: { x: 0, y: 0, z: 0 },
-			position: { x: 0, y: 0, z: 0 }
+			position: { x: 0, y: 0 }
 		}
 	},
 	{
@@ -27,7 +27,7 @@ window.EARTH3D_PRESETS.camera = [
 		camera: {
 			zoom: 15,
 			rotate: { x: 0, y: 0, z: 0 },
-			position: { x: 0, y: 0, z: 0 }
+			position: { x: 0, y: 0 }
 		}
 	},
 	{
@@ -36,7 +36,7 @@ window.EARTH3D_PRESETS.camera = [
 		camera: {
 			zoom: 50,
 			rotate: { x: 20, y: 0, z: 0 },
-			position: { x: 0, y: 0, z: 0 }
+			position: { x: 0, y: 0 }
 		}
 	}
 ];

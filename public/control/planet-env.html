@@ -23,7 +23,7 @@
 		<div class="row">
 			<select id="texturePreset"></select>
 		</div>
-		<div class="row">
+		<div class="row sub-row visible" id="qualityRow">
 			<label style="margin:0 0 4px;"><span class="name">Quality</span></label>
 			<select id="quality">
 				<option value="low">Low</option>
@@ -42,6 +42,46 @@
 			A starfield sphere that spins together with the planet, rather
 			than staying fixed like a real night sky would.
 		</p>
+		<div class="sub-row" id="starfieldControls">
+			<label>
+				<span class="name">Star Count</span>
+				<input type="range" id="starfieldCount" min="500" max="40000" step="100" value="6600">
+				<span class="value" id="starfieldCount-val">6600</span>
+			</label>
+			<label>
+				<span class="name">Star Size</span>
+				<input type="range" id="starfieldSize" min="10" max="500" value="100">
+				<span class="value" id="starfieldSize-val">100</span>
+			</label>
+			<label>
+				<span class="name">Size Variation</span>
+				<input type="range" id="starfieldSizeVariation" min="0" max="100" value="50">
+				<span class="value" id="starfieldSizeVariation-val">50</span>
+			</label>
+			<label>
+				<span class="name">Star Color</span>
+				<input type="color" id="starfieldColor" value="#ffffff">
+			</label>
+			<label>
+				<span class="name">Color Variation</span>
+				<input type="range" id="starfieldColorVariation" min="0" max="100" value="40">
+				<span class="value" id="starfieldColorVariation-val">40</span>
+			</label>
+			<label>
+				<span class="name">Fading Effect</span>
+				<input type="checkbox" id="starfieldFading" checked>
+			</label>
+			<label class="sub-row" id="starfieldEffectVariationRow">
+				<span class="name">Effect Variation</span>
+				<input type="range" id="starfieldEffectVariation" min="0" max="100" value="0">
+				<span class="value" id="starfieldEffectVariation-val">0</span>
+			</label>
+			<label class="sub-row" id="starfieldEffectSpeedRow">
+				<span class="name">Effect Speed</span>
+				<input type="range" id="starfieldEffectSpeed" min="10" max="300" value="100">
+				<span class="value" id="starfieldEffectSpeed-val">100</span>
+			</label>
+		</div>
 	</fieldset>
 
 	<h2>Rotation</h2>
@@ -70,12 +110,9 @@
 			<span class="value" id="positionY-val">0</span>
 			<button type="button" class="reset-btn" data-reset-target="positionY" title="Reset to theme default">↺</button>
 		</label>
-		<label>
-			<span class="name">Z</span>
-			<input type="range" id="positionZ" min="-200" max="200" value="0">
-			<span class="value" id="positionZ-val">0</span>
-			<button type="button" class="reset-btn" data-reset-target="positionZ" title="Reset to theme default">↺</button>
-		</label>
+		<p class="intro sub-row visible" style="margin:6px 0 0;">
+			Shift+drag the globe on the display to pan X/Y directly; scroll to zoom.
+		</p>
 	</fieldset>
 
 	<h2>Camera</h2>

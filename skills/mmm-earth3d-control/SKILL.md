@@ -30,8 +30,8 @@ with these top-level fields:
 | `quality` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` | render/texture quality tier |
 | `atmosphere` | object | `{ preset, color, altitude, opacity }` |
 | `texture` | object | `{ preset, imageUrl, bumpImageUrl }` |
-| `background` | object | `{ enabled, preset, imageUrl }` — flat image sphere (`night-sky`) or real 3D star particles (`star-particles`), both spinning together with the globe |
-| `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y,z} }` |
+| `background` | object | `{ enabled, preset, imageUrl, starfield }` — flat image sphere (`night-sky`) or real 3D star particles (`star-particles`), both spinning together with the globe; `starfield` (only used when `preset` is `star-particles`) is `{ count, size, sizeVariation, color, colorVariation, fading, effectVariation, effectSpeed }`, see the field value ranges table below |
+| `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y} }` — `position` is also live-settable by hand on the display itself: Shift+drag pans X/Y, plain scroll zooms |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
 | `clouds` | object | `{ enabled, source: "static"\|"dynamic"\|"realtime", opacity }` |
 | `flights` | object | `{ enabled, flightNumber, track, pollInterval }` — real-time flight tracking, see below. **Not** part of `theme` (switching theme never changes or clears it, and it's never included in `theme` save/duplicate) — it's session/operational state, not a visual look. |
@@ -42,8 +42,9 @@ want to change. Everything else keeps its current value. Send `null` for a
 field to reset it back to its theme/preset/default value instead of a
 literal.
 
-`rotate`/`position` accept either `{x,y,z}` or the compact array form
-`[x, y, z]` (any axis may be omitted).
+`rotate` accepts either `{x,y,z}` or the compact array form `[x, y, z]`;
+`position` is `{x,y}` (or `[x, y]`) — no `z`, since camera zoom already
+covers that axis (any axis may be omitted in either form).
 
 ## Endpoints
 
@@ -293,7 +294,8 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 |---|---|
 | `rotationSpeed` | `0`-`100` accepted, but `25` and above all give the same (fastest) speed - ~144s/revolution. `0` = stopped. |
 | `camera.zoom` | `0`-`200` (0 = far, 100 = close, 100-200 = extended close-up range for framing something small like a flight marker or city tightly) |
-| `camera.rotate.{x,y,z}` / `camera.position.{x,y,z}` | degrees / scene units — needs tuning by eye |
+| `camera.rotate.{x,y,z}` | degrees — needs tuning by eye |
+| `camera.position.{x,y}` | scene units, roughly `-200`-`200` — needs tuning by eye; also settable by Shift+dragging the globe on the display |
 | `quality` | `low` \| `medium` \| `high` \| `ultra` |
 | `atmosphere.altitude` | roughly `0`-`0.5` |
 | `atmosphere.opacity` | `0` (hidden) - `1` (shown); on/off threshold, not true alpha |
@@ -303,6 +305,14 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | `clouds.opacity` | `0`-`1` |
 | `background.enabled` | `true` \| `false` |
 | `background.preset` | `night-sky` \| `star-particles` \| `custom` (with `background.imageUrl`) |
+| `background.starfield.count` | `500`-`20000`, total stars across all 4 depth layers (default `6600`) |
+| `background.starfield.size` | `0.1`-`3`, multiplier on each layer's base point size (default `1`) |
+| `background.starfield.sizeVariation` | `0`-`1`, per-star size randomness spread (default `0.5`) |
+| `background.starfield.color` | hex color string, base star color (default `#ffffff`) |
+| `background.starfield.colorVariation` | `0`-`1`, hue/saturation scatter away from `color` (default `0.4`) |
+| `background.starfield.fading` | `true` \| `false` — breathing/twinkle size-pulse effect (default `true`) |
+| `background.starfield.effectVariation` | `0`-`1`, desyncs each star's twinkle phase so they don't pulse in unison (default `0`) |
+| `background.starfield.effectSpeed` | `0.1`-`3`, multiplier on each layer's base twinkle speed (default `1`) |
 | `flights.flightNumber` | IATA flight number string, e.g. `"UA123"` (converted to an OpenSky callsign server-side; obscure airlines may need the ICAO form directly, e.g. `"UAL123"`) |
 | `flights.enabled` | `true` \| `false` — shows the marker and drives polling |
 | `flights.track` | `true` \| `false` — `true` rotates the globe/background to keep the tracked flight centered on camera instead of the normal camera behavior |
@@ -320,6 +330,8 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 **"Turn on clouds":** `{"clouds": {"enabled": true}}` (add `"source": "dynamic"` for an animated, no-network cloud drift, or `"source": "realtime"` for live satellite clouds).
 
 **"Turn on/off the starry background":** `{"background": {"enabled": true}}` / `{"background": {"enabled": false}}`.
+
+**"More/denser stars" / "bigger stars" / "make the stars twinkle less":** switch to `star-particles` first if needed, then patch `background.starfield`, e.g. `{"background": {"enabled": true, "preset": "star-particles", "starfield": {"count": 12000}}}` or `{"background": {"starfield": {"fading": false}}}`.
 
 **"Make it look like <theme name>":** `{"theme": "<id>"}` from the table above.
 

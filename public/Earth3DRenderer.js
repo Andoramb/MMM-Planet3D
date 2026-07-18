@@ -23,6 +23,16 @@ const TRANSITION_MS = 700;
 // centerOnCity()'s one-shot spin animation - longer than TRANSITION_MS since it can cover up to a half-turn of the globe.
 const CENTER_ON_CITY_TRANSITION_MS = 2000;
 
+// setupInteraction(): scroll-zoom step per wheel event (in the same 0-200 units as config.camera.zoom) and how long each step tweens over.
+const WHEEL_ZOOM_STEP = 4;
+const WHEEL_ZOOM_TWEEN_MS = 150;
+
+// setupInteraction(): matches planet-env.html's positionX/Y slider range - Shift-drag panning clamps to the same bounds.
+const POSITION_BOUND = 200;
+
+// setupInteraction(): how long after the last wheel/drag event before the gesture's result is pinned into the module's tracked override.
+const INTERACTIVE_COMMIT_DEBOUNCE_MS = 500;
+
 // How often to check whether another opaque layer (e.g. a sibling fullscreen_below module) is covering the globe - a plain interval, not a per-frame check.
 const OCCLUSION_CHECK_MS = 1000;
 
@@ -109,11 +119,13 @@ class TweenedValue {
 }
 
 class Earth3DRenderer {
-	constructor(container, config, cacheBust) {
+	constructor(container, config, cacheBust, onInteractiveCameraChange) {
 		this.container = container;
 		this.config = config;
 		// Only applied to CloudsLayer.mjs/FlightLayer.mjs's own imports, not loadThreeGlobeDeps()'s three - cache-busting those would fragment the single-shared-THREE guarantee.
 		this.cacheBust = cacheBust ? ("?v=" + cacheBust) : "";
+		// Fired once a Shift+drag/scroll gesture settles (see setupInteraction()) so MMM-Earth3D.js can pin the result into the tracked override.
+		this.onInteractiveCameraChange = onInteractiveCameraChange || null;
 
 		this.THREE = null;
 		this.ThreeGlobeCtor = null;
@@ -146,7 +158,6 @@ class Earth3DRenderer {
 		this.tiltZ = new TweenedValue(rotate.z);
 		this.posX = new TweenedValue(position.x);
 		this.posY = new TweenedValue(position.y);
-		this.posZ = new TweenedValue(position.z);
 		this.zoomAltitude = new TweenedValue(this.zoomToAltitude(config.camera.zoom));
 		// Reference camera distance the flight marker's geometry was authored to look right at - tick() divides current distance by this to counteract perspective for a constant on-screen size.
 		this.flightMarkerReferenceDistance = 1 + this.zoomToAltitude(FLIGHT_MARKER_REFERENCE_ZOOM);
@@ -330,8 +341,81 @@ class Earth3DRenderer {
 		// Spin is applied manually each frame around the globe's own local axis (correctly follows tilt) - OrbitControls' autoRotate orbits the world axis instead, wrong once tilted.
 		this.controls.autoRotate = false;
 		this.controls.enableZoom = false;
+		// Both handled manually by setupInteraction() instead: zoom drives config.camera.zoom (not camera distance directly), and pan moves the globe object, not the camera/target.
+		this.controls.enablePan = false;
 		this.controls.minDistance = CONTROLS_MIN_DISTANCE;
 		this.controls.maxDistance = this.threeGlobeObj.getGlobeRadius() * CONTROLS_MAX_DISTANCE_MULTIPLIER;
+		this.setupInteraction();
+	}
+
+	// Shift+drag pans the globe on the X/Y plane (config.camera.position); plain scroll zooms (config.camera.zoom) - both tween instantly for direct-manipulation feel, then commit back to the module once the gesture settles so the resolved config (and control.html's next read of it) picks it up.
+	setupInteraction() {
+		const el = this.renderer.domElement;
+		el.addEventListener("wheel", (event) => this.handleWheel(event), { passive: false });
+		el.addEventListener("pointerdown", (event) => this.handlePointerDown(event));
+	}
+
+	handleWheel(event) {
+		event.preventDefault();
+		const step = event.deltaY > 0 ? -WHEEL_ZOOM_STEP : WHEEL_ZOOM_STEP;
+		const zoom = clamp(this.config.camera.zoom + step, 0, ZOOM_EXTENDED_MAX);
+		this.config.camera.zoom = zoom;
+		this.zoomAltitude.setTarget(this.zoomToAltitude(zoom), WHEEL_ZOOM_TWEEN_MS);
+		this.scheduleInteractiveCommit({ zoom });
+	}
+
+	handlePointerDown(event) {
+		if (!event.shiftKey || !this.controls || this.flightTrackBlend.current > 0.001) {
+			return;
+		}
+		event.preventDefault();
+		const wasRotateEnabled = this.controls.enableRotate;
+		this.controls.enableRotate = false;
+		let lastX = event.clientX;
+		let lastY = event.clientY;
+		const onMove = (moveEvent) => {
+			this.panGlobe(moveEvent.clientX - lastX, moveEvent.clientY - lastY);
+			lastX = moveEvent.clientX;
+			lastY = moveEvent.clientY;
+		};
+		const onUp = () => {
+			window.removeEventListener("pointermove", onMove);
+			window.removeEventListener("pointerup", onUp);
+			this.controls.enableRotate = wasRotateEnabled;
+			this.config.camera.position.x = this.posX.to;
+			this.config.camera.position.y = this.posY.to;
+			this.scheduleInteractiveCommit({ position: { x: this.posX.to, y: this.posY.to } });
+		};
+		window.addEventListener("pointermove", onMove);
+		window.addEventListener("pointerup", onUp);
+	}
+
+	// Converts a screen-pixel drag delta into a world-space offset along the camera's current screen-aligned right/up axes (same approach OrbitControls' own pan uses), then drops the resulting Z component - the globe's position is X/Y only.
+	panGlobe(deltaPixelX, deltaPixelY) {
+		const THREE = this.THREE;
+		const distance = this.camera.position.distanceTo(this.controls.target);
+		const visibleHeight = 2 * distance * Math.tan(degToRad(this.camera.fov) / 2);
+		const unitsPerPixel = visibleHeight / this.renderer.domElement.clientHeight;
+		const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+		const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+		const offset = right.multiplyScalar(-deltaPixelX * unitsPerPixel).add(up.multiplyScalar(deltaPixelY * unitsPerPixel));
+		// Integer scene units to match the control panel's whole-number position sliders - a sub-pixel drag can otherwise leave posX/posY with long decimal tails.
+		const newX = clamp(Math.round(this.posX.to + offset.x), -POSITION_BOUND, POSITION_BOUND);
+		const newY = clamp(Math.round(this.posY.to + offset.y), -POSITION_BOUND, POSITION_BOUND);
+		this.posX.setTarget(newX, 0);
+		this.posY.setTarget(newY, 0);
+	}
+
+	scheduleInteractiveCommit(patch) {
+		this.pendingInteractiveCommit = Object.assign(this.pendingInteractiveCommit || {}, patch);
+		clearTimeout(this.interactiveCommitTimer);
+		this.interactiveCommitTimer = setTimeout(() => {
+			const pending = this.pendingInteractiveCommit;
+			this.pendingInteractiveCommit = null;
+			if (this.onInteractiveCameraChange) {
+				this.onInteractiveCameraChange(pending);
+			}
+		}, INTERACTIVE_COMMIT_DEBOUNCE_MS);
 	}
 
 	startRenderLoop() {
@@ -369,7 +453,6 @@ class Earth3DRenderer {
 		this.tiltZ.setTarget(rotate.z, TRANSITION_MS);
 		this.posX.setTarget(position.x, TRANSITION_MS);
 		this.posY.setTarget(position.y, TRANSITION_MS);
-		this.posZ.setTarget(position.z, TRANSITION_MS);
 	}
 
 	// Antialiasing can't change on an existing WebGL context, so quality changes rebuild the scene - tween/spin state is left untouched, and the texture resolution key is re-picked for the new tier.
@@ -410,8 +493,12 @@ class Earth3DRenderer {
 			this.applyTileEngine();
 			return;
 		}
-		if (this.threeGlobeObj && textures.bump) {
-			this.threeGlobeObj.bumpImageUrl(textures.bump);
+		if (this.threeGlobeObj) {
+			// three-globe keeps its globeObj hidden while globeTileEngineUrl is set, even after globeImageUrl changes - must clear it to leave tile-engine mode.
+			this.threeGlobeObj.globeTileEngineUrl(null);
+			if (textures.bump) {
+				this.threeGlobeObj.bumpImageUrl(textures.bump);
+			}
 		}
 		if (this.compositor) {
 			this.compositor.setDayImage(textures.image);
@@ -431,12 +518,10 @@ class Earth3DRenderer {
 	applyBackground() {
 		const selection = this.resolveBackgroundSelection();
 		this.debugLog("applyBackground", selection);
+		this.applyStarfield(selection);
 		if (!selection) {
 			if (this.backgroundMesh) {
 				this.backgroundMesh.visible = false;
-			}
-			if (this.starfieldLayer) {
-				this.starfieldLayer.setVisible(false);
 			}
 			return;
 		}
@@ -444,19 +529,24 @@ class Earth3DRenderer {
 			if (this.backgroundMesh) {
 				this.backgroundMesh.visible = false;
 			}
-			if (this.starfieldLayer) {
-				this.starfieldLayer.setVisible(true);
-			}
 			return;
-		}
-		if (this.starfieldLayer) {
-			this.starfieldLayer.setVisible(false);
 		}
 		if (this.backgroundMesh && this.backgroundMesh.userData.url === selection.url) {
 			this.backgroundMesh.visible = true;
 			return;
 		}
 		this.loadBackgroundTexture(selection.url);
+	}
+
+	// Pushes background.starfield's count/size/color/etc into the star point-clouds and toggles their visibility - selection is applyBackground()'s already-resolved choice.
+	applyStarfield(selection) {
+		if (!this.starfieldLayer) {
+			return;
+		}
+		const starfield = this.config.background.starfield;
+		this.debugLog("applyStarfield", starfield);
+		this.starfieldLayer.setVisible(Boolean(selection && selection.type === "starfield"));
+		this.starfieldLayer.setConfig(starfield);
 	}
 
 	// Returns null (background off/unresolved), { type: "starfield" }, or { type: "image", url }.
@@ -684,6 +774,11 @@ class Earth3DRenderer {
 				this.cloudsLayer = new module.CloudsLayer(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug));
 				if (this.pendingCloudsImage) {
 					this.applyCloudsImage(this.pendingCloudsImage);
+				} else {
+					// Mirrors ensureFlightLayer()/ensureStarfieldLayer() syncing current config right after construction - without this, a clouds toggle that landed during this import stays unapplied until an image happens to load.
+					this.cloudsLayer.setOpacity(this.config.clouds.opacity);
+					this.cloudsLayer.setVisible(this.config.clouds.enabled);
+					this.cloudsLayer.setDynamic(this.config.clouds.source === "dynamic");
 				}
 				this.cloudsLayer.setNightMask(this.pendingCloudsNightMask);
 				if (this.threeGlobeObj) {
@@ -731,17 +826,17 @@ class Earth3DRenderer {
 		}
 		this.starfieldLayerImporting = true;
 		import("./StarfieldLayer.mjs" + this.cacheBust)
-			.then((module) => {
+			.then((module) => module.StarfieldLayer.create(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug), this.config.background.starfield, this.cacheBust))
+			.then((layer) => {
 				this.starfieldLayerImporting = false;
 				if (this.destroyed || this.starfieldLayer) {
 					return;
 				}
-				this.starfieldLayer = new module.StarfieldLayer(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug));
+				this.starfieldLayer = layer;
 				if (this.threeGlobeObj) {
 					this.starfieldLayer.attachTo(this.threeGlobeObj);
 				}
-				const selection = this.resolveBackgroundSelection();
-				this.starfieldLayer.setVisible(Boolean(selection && selection.type === "starfield"));
+				this.applyStarfield(this.resolveBackgroundSelection());
 			})
 			.catch((err) => {
 				this.starfieldLayerImporting = false;
@@ -773,7 +868,6 @@ class Earth3DRenderer {
 		this.tiltZ.update(now);
 		this.posX.update(now);
 		this.posY.update(now);
-		this.posZ.update(now);
 		this.spinRate.update(now);
 		this.zoomAltitude.update(now);
 		this.flightTrackBlend.update(now);
@@ -818,7 +912,7 @@ class Earth3DRenderer {
 			}
 
 			this.threeGlobeObj.quaternion.copy(qFinal);
-			this.threeGlobeObj.position.set(this.posX.current, this.posY.current, this.posZ.current);
+			this.threeGlobeObj.position.set(this.posX.current, this.posY.current, 0);
 			// The camera/OrbitControls target are deliberately left untouched - X/Y pan and flights.track both rely on panning the globe object itself.
 		}
 
@@ -833,6 +927,8 @@ class Earth3DRenderer {
 			offset.setLength(this.threeGlobeObj.getGlobeRadius() * (1 + this.zoomAltitude.current));
 			this.camera.position.copy(this.controls.target).add(offset);
 			this.controls.update();
+			// three-globe's tile engine only fetches/builds tiles in response to this call - without it globeTileEngineUrl mode never requests a single tile and renders fully transparent.
+			this.threeGlobeObj.setPointOfView(this.camera);
 		}
 
 		if (this.renderer && this.scene && this.camera && !this.occluded) {

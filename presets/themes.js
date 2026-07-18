@@ -38,7 +38,7 @@ window.EARTH3D_THEMES = [
 		camera: {
 			zoom: 40,
 			rotate: [15, 0, 0], // array shorthand for { x: 15, y: 0, z: 0 }
-			position: [0, 0, 0]
+			position: [0, 0] // array shorthand for { x: 0, y: 0 }
 		},
 		dayNight: { mode: "realtime" },
 		clouds: { enabled: true, source: "static" }

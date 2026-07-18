@@ -66,14 +66,16 @@ const DYNAMIC_UNIFORMS_GLSL = `
 	uniform float dynamicWarpSeed;
 `;
 
-// Mutates vMapUv before <map_fragment> samples it - scroll + noise-warp only kick in once dynamicEnabled is set (see setDynamic()).
+// Shadows vMapUv with a mutable local before <map_fragment> samples it - varyings are read-only in a GLSL fragment shader, so reassigning the real one is a compile error.
 const DYNAMIC_MAP_FRAGMENT_INJECT = `
+	vec2 mmmBaseMapUv = vMapUv;
+	vec2 vMapUv = mmmBaseMapUv;
 	if ( dynamicEnabled > 0.5 ) {
-		vec2 warpP = vMapUv * ${DYNAMIC_WARP_SCALE.toFixed(2)} + dynamicWarpSeed + uTime * ${DYNAMIC_WARP_SPEED.toFixed(4)};
+		vec2 warpP = mmmBaseMapUv * ${DYNAMIC_WARP_SCALE.toFixed(2)} + dynamicWarpSeed + uTime * ${DYNAMIC_WARP_SPEED.toFixed(4)};
 		float n1 = mmmValueNoise( warpP );
 		float n2 = mmmValueNoise( warpP * 2.0 + 19.0 );
 		vec2 warpOffset = ( vec2( n1, n2 ) - 0.5 ) * ${DYNAMIC_WARP_STRENGTH.toFixed(4)};
-		vMapUv = vMapUv + dynamicScrollSpeed * uTime + warpOffset;
+		vMapUv += dynamicScrollSpeed * uTime + warpOffset;
 	}
 	#include <map_fragment>
 `;
@@ -133,6 +135,8 @@ export class CloudsLayer {
 			texture.needsUpdate = true;
 			const material = new THREE.MeshPhongMaterial({ map: texture, transparent: true, opacity: 1 });
 			material.onBeforeCompile = (shader) => this.onMaterialCompile(shader);
+			// Three.js's program cache key ignores onBeforeCompile by default, so without this the base/high-altitude materials below (identical otherwise) could share one compiled shader.
+			material.customProgramCacheKey = () => "mmm-clouds-base";
 			this.mesh = new THREE.Mesh(geometry, material);
 		} else {
 			this.mesh.material.map.dispose();
@@ -195,6 +199,7 @@ export class CloudsLayer {
 			depthWrite: false
 		});
 		material.onBeforeCompile = (shader) => this.onHighMaterialCompile(shader);
+		material.customProgramCacheKey = () => "mmm-clouds-high";
 		this.highMesh = new THREE.Mesh(geometry, material);
 		this.highMesh.visible = this.dynamicMode && this.visible;
 		if (this.mesh && this.mesh.parent) {

@@ -186,7 +186,7 @@ module.exports = NodeHelper.create({
 			theme.texture = mergeAssetOverride(theme.texture, overrides.texture, []);
 		}
 		if (overrides.background) {
-			theme.background = mergeAssetOverride(theme.background, overrides.background, []);
+			theme.background = mergeAssetOverride(theme.background, overrides.background, ["starfield"]);
 		}
 		if (overrides.camera) {
 			theme.camera = mergeAssetOverride(theme.camera, overrides.camera, ["rotate", "position"]);

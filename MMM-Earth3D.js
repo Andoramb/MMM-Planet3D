@@ -28,14 +28,25 @@ Module.register("MMM-Earth3D", {
 		background: {
 			enabled: false, // off by default - opt in once you've picked a look you like
 			preset: "night-sky", // string id from presets/backgrounds.js, or "custom" with imageUrl below
-			imageUrl: null
+			imageUrl: null,
+			// Live tuning for the "star-particles" preset - see StarfieldLayer.mjs's DEFAULT_CONFIG (kept in sync with these).
+			starfield: {
+				count: 6600, // total stars across all 4 depth layers
+				size: 1, // multiplier on each layer's base point size
+				sizeVariation: 0.5, // 0-1, per-star size randomness spread
+				color: "#ffffff", // base star color
+				colorVariation: 0.4, // 0-1, hue/saturation scatter away from color
+				fading: true, // breathing/twinkle size pulse
+				effectVariation: 0, // 0-1, desyncs each star's twinkle phase (0 = all pulse in unison)
+				effectSpeed: 1 // multiplier on each layer's base twinkle speed
+			}
 		},
 
 		camera: {
 			preset: "custom", // string id from presets/camera.js, or "custom" for the fields below
 			zoom: 50, // 0-100, 0 = far (zoomed out), 100 = close (zoomed in)
 			rotate: { x: 0, y: 0, z: 0 }, // degrees, fixed tilt of the globe's resting orientation - also accepts [x, y, z]
-			position: { x: 0, y: 0, z: 0 } // scene-unit offset (globe radius = 100 units, not CSS pixels) - also accepts [x, y, z]
+			position: { x: 0, y: 0 } // scene-unit offset (globe radius = 100 units, not CSS pixels) - also accepts [x, y]; also live-settable by Shift+drag on the display itself (see Earth3DRenderer.js's setupInteraction())
 		},
 
 		quality: "medium", // low | medium | high | ultra
@@ -176,7 +187,7 @@ Module.register("MMM-Earth3D", {
 			quality: this.config.quality !== this.defaults.quality ? this.config.quality : undefined,
 			atmosphere: this.captureOverride("atmosphere"),
 			texture: this.captureOverride("texture"),
-			background: this.captureOverride("background"),
+			background: this.captureOverride("background", ["starfield"]),
 			camera: this.captureOverride("camera", ["rotate", "position"]),
 			dayNight: this.captureOverride("dayNight"),
 			clouds: this.captureOverride("clouds"),
@@ -213,7 +224,7 @@ Module.register("MMM-Earth3D", {
 
 		this.resolveAssetConfig("atmosphere", theme, []);
 		this.resolveAssetConfig("texture", theme, []);
-		this.resolveAssetConfig("background", theme, []);
+		this.resolveAssetConfig("background", theme, ["starfield"]);
 		this.resolveAssetConfig("camera", theme, ["rotate", "position"]);
 		this.resolveDirectConfig("dayNight", theme, []);
 		this.resolveDirectConfig("clouds", theme, []);
@@ -402,7 +413,7 @@ Module.register("MMM-Earth3D", {
 		if (notification === "DOM_OBJECTS_CREATED") {
 			this.debugLog("DOM_OBJECTS_CREATED - constructing Earth3DRenderer");
 			const container = document.getElementById("earth3d-" + this.identifier);
-			this.renderer = new Earth3DRenderer(container, this.config, this.cacheBust);
+			this.renderer = new Earth3DRenderer(container, this.config, this.cacheBust, (patch) => this.handleInteractiveCameraChange(patch));
 			this.renderer.setServerTimeOffset(this.serverTimeOffsetMs);
 			return;
 		}
@@ -457,6 +468,13 @@ Module.register("MMM-Earth3D", {
 			return;
 		}
 		this.applyLiveConfig(payload || {});
+	},
+
+	// Fired by Earth3DRenderer.js's Shift+drag/scroll interaction once a gesture ends - the renderer already reflects the change live, this just pins it into the tracked override so it survives future resolveConfig() calls and shows up next time control.html reads this.config over EARTH3D_REQUEST_CONFIG.
+	handleInteractiveCameraChange: function (patch) {
+		this.debugLog("handleInteractiveCameraChange", JSON.stringify(patch));
+		this.mergeOverride("camera", Object.assign({ preset: "custom" }, patch), ["rotate", "position"]);
+		this.resolveConfig();
 	},
 
 	// Tells node_helper's flight tracker the resolved flights config, so its OpenSky polling stays in sync regardless of which of the three ways a config change can arrive.
@@ -526,7 +544,7 @@ Module.register("MMM-Earth3D", {
 			this.mergeOverride("texture", partial.texture, []);
 		}
 		if (backgroundChanged) {
-			this.mergeOverride("background", partial.background, []);
+			this.mergeOverride("background", partial.background, ["starfield"]);
 		}
 		if (cameraChanged) {
 			this.mergeOverride("camera", partial.camera, ["rotate", "position"]);

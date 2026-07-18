@@ -19,7 +19,6 @@ export function init (ctx) {
 	ctx.bindSlider("rotateZ", (value) => sendCustomCamera({ rotate: { z: value } }));
 	ctx.bindSlider("positionX", (value) => sendCustomCamera({ position: { x: value } }));
 	ctx.bindSlider("positionY", (value) => sendCustomCamera({ position: { y: value } }));
-	ctx.bindSlider("positionZ", (value) => sendCustomCamera({ position: { z: value } }));
 
 	cameraPresetEl.addEventListener("change", () => {
 		if (cameraPresetEl.value === "custom") {
@@ -36,7 +35,6 @@ export function init (ctx) {
 		ctx.setSliderValue("rotateZ", preset.camera.rotate.z);
 		ctx.setSliderValue("positionX", preset.camera.position.x);
 		ctx.setSliderValue("positionY", preset.camera.position.y);
-		ctx.setSliderValue("positionZ", preset.camera.position.z);
 		ctx.send({ camera: { preset: preset.id } });
 	});
 
@@ -54,7 +52,15 @@ export function init (ctx) {
 	bindCameraReset("rotateZ", "z", "rotate");
 	bindCameraReset("positionX", "x", "position");
 	bindCameraReset("positionY", "y", "position");
-	bindCameraReset("positionZ", "z", "position");
+
+	// Shift+drag/scroll on the live display moves the globe/zoom directly, bypassing this panel - poll so those changes still show up here without a manual reload. Skipped while a camera slider is focused so it can't yank a value out from under an in-progress local drag.
+	const liveSyncIds = ["zoom", "rotateX", "rotateY", "rotateZ", "positionX", "positionY"];
+	setInterval(() => {
+		if (document.visibilityState !== "visible" || liveSyncIds.includes(document.activeElement && document.activeElement.id)) {
+			return;
+		}
+		ctx.refetch();
+	}, 1000);
 }
 
 export function applyConfig (config, ctx) {
@@ -65,5 +71,4 @@ export function applyConfig (config, ctx) {
 	ctx.setSliderValue("rotateZ", config.camera.rotate.z);
 	ctx.setSliderValue("positionX", config.camera.position.x);
 	ctx.setSliderValue("positionY", config.camera.position.y);
-	ctx.setSliderValue("positionZ", config.camera.position.z);
 }

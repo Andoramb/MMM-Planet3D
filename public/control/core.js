@@ -4,7 +4,7 @@
 export const MODULE_DEFAULTS = {
 	rotationSpeed: 20,
 	atmosphere: { color: "#4aa8ff", altitude: 0.15, opacity: 1 },
-	camera: { zoom: 50, rotate: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 0, z: 0 } }
+	camera: { zoom: 50, rotate: { x: 0, y: 0, z: 0 }, position: { x: 0, y: 0 } }
 };
 
 const statusEl = document.getElementById("status");

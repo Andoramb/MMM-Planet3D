@@ -25,3 +25,14 @@ which imports that same file).
 `node_modules` created by the `npm install` above is disposable - it's
 already covered by the repo's root `.gitignore` (`node_modules/` matches at
 any depth) and isn't needed after `build.mjs` has run.
+
+## Hand patch: sizeVariation/twinkle/variation
+
+`public/vendor/stars.mjs` no longer matches `build.mjs`'s raw output - it's
+hand-patched (and de-minified) to add `sizeVariation`, `twinkle`, and
+`variation` constructor/`rebuildAttributes` options plus a `phase` per-star
+attribute, so `StarfieldLayer.mjs` can drive MMM-Earth3D's Star Particles
+live controls. Re-running `build.mjs` overwrites that patch - if you
+regenerate, reapply it from git history (or copy `stars.mjs`'s current
+contents over the freshly-generated file's `import`/class bodies) before
+committing.
