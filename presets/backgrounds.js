@@ -20,5 +20,14 @@ window.EARTH3D_PRESETS.background = [
 		background: {
 			imageUrl: "img/backgrounds/night-sky.png"
 		}
+	},
+	{
+		id: "star-particles",
+		name: "Star Particles",
+		background: {
+			// No imageUrl - flags Earth3DRenderer.js's resolveBackgroundSelection() to
+			// use StarfieldLayer.mjs's real 3D point-cloud stars instead of a flat image.
+			starfield: true
+		}
 	}
 ];

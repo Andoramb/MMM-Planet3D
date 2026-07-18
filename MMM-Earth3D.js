@@ -122,7 +122,9 @@ Module.register("MMM-Earth3D", {
 		window.EARTH3D_PRESETS = window.EARTH3D_PRESETS || {};
 		window.EARTH3D_PRESETS.atmosphere = this.validatePresets(window.EARTH3D_PRESETS.atmosphere, "atmosphere", ["color", "altitude"]);
 		window.EARTH3D_PRESETS.texture = this.validatePresets(window.EARTH3D_PRESETS.texture, "texture", ["images"]);
-		window.EARTH3D_PRESETS.background = this.validatePresets(window.EARTH3D_PRESETS.background, "background", ["imageUrl"]);
+		// No single required field - a background preset is either image-based (imageUrl) or
+		// particle-based (starfield: true, see presets/backgrounds.js/StarfieldLayer.mjs).
+		window.EARTH3D_PRESETS.background = this.validatePresets(window.EARTH3D_PRESETS.background, "background", []);
 		window.EARTH3D_PRESETS.camera = this.validatePresets(window.EARTH3D_PRESETS.camera, "camera", ["zoom", "rotate", "position"]);
 		// User-created themes (presets/themes-user.js, gitignored - see
 		// node_helper.js) are merged in after the shipped defaults; from here

@@ -188,6 +188,8 @@ class Earth3DRenderer {
 		this.cloudsLayer = null;
 		this.flightLayer = null;
 		this.flightLayerImporting = false;
+		this.starfieldLayer = null;
+		this.starfieldLayerImporting = false;
 		this.backgroundMesh = null;
 		this.backgroundLoadId = 0;
 		this.destroyed = false;
@@ -317,6 +319,7 @@ class Earth3DRenderer {
 
 		this.ensureCloudsLayer();
 		this.ensureFlightLayer();
+		this.ensureStarfieldLayer();
 
 		if (!this.compositor) {
 			this.compositor = new EarthCompositor(
@@ -515,39 +518,64 @@ class Earth3DRenderer {
 		}
 	}
 
-	// Toggles/swaps the background sphere (see BACKGROUND_SPHERE_RADIUS_MULTIPLIER
-	// above for why it's attached to threeGlobeObj rather than the scene
-	// directly). Disabling just hides the existing mesh rather than disposing
-	// it, so re-enabling the same preset is instant - no re-fetch/re-decode.
+	// Toggles/swaps the background (see BACKGROUND_SPHERE_RADIUS_MULTIPLIER
+	// above for why the image sphere is attached to threeGlobeObj rather than
+	// the scene directly - the "star-particles" preset's StarfieldLayer is
+	// attached the same way, see ensureStarfieldLayer()). Disabling just hides
+	// whichever is currently built rather than disposing it, so re-enabling
+	// the same preset is instant - no re-fetch/re-decode/re-randomize. Exactly
+	// one of the image mesh or the particle layer is ever visible.
 	applyBackground() {
-		const url = this.resolveBackgroundUrl();
-		this.debugLog("applyBackground", url);
-		if (!url) {
+		const selection = this.resolveBackgroundSelection();
+		this.debugLog("applyBackground", selection);
+		if (!selection) {
 			if (this.backgroundMesh) {
 				this.backgroundMesh.visible = false;
 			}
+			if (this.starfieldLayer) {
+				this.starfieldLayer.setVisible(false);
+			}
 			return;
 		}
-		if (this.backgroundMesh && this.backgroundMesh.userData.url === url) {
+		if (selection.type === "starfield") {
+			if (this.backgroundMesh) {
+				this.backgroundMesh.visible = false;
+			}
+			if (this.starfieldLayer) {
+				this.starfieldLayer.setVisible(true);
+			}
+			return;
+		}
+		if (this.starfieldLayer) {
+			this.starfieldLayer.setVisible(false);
+		}
+		if (this.backgroundMesh && this.backgroundMesh.userData.url === selection.url) {
 			this.backgroundMesh.visible = true;
 			return;
 		}
-		this.loadBackgroundTexture(url);
+		this.loadBackgroundTexture(selection.url);
 	}
 
-	resolveBackgroundUrl() {
+	// Returns null (background off/unresolved), { type: "starfield" }, or { type: "image", url }.
+	resolveBackgroundSelection() {
 		const background = this.config.background;
 		if (!background || !background.enabled) {
 			return null;
 		}
 		if (background.preset === "custom") {
-			return background.imageUrl || null;
+			return background.imageUrl ? { type: "image", url: background.imageUrl } : null;
 		}
 		const preset = (window.EARTH3D_PRESETS.background || []).find((entry) => entry.id === background.preset);
-		if (!preset || !preset.background.imageUrl) {
+		if (!preset) {
 			return null;
 		}
-		return this.assetPath(preset.background.imageUrl);
+		if (preset.background.starfield) {
+			return { type: "starfield" };
+		}
+		if (!preset.background.imageUrl) {
+			return null;
+		}
+		return { type: "image", url: this.assetPath(preset.background.imageUrl) };
 	}
 
 	// requestId guards against a slow-loading earlier request (e.g. switching
@@ -828,6 +856,35 @@ class Earth3DRenderer {
 			});
 	}
 
+	// StarfieldLayer.mjs is loaded the same way and for the same reason as
+	// CloudsLayer.mjs above. Built unconditionally regardless of the current
+	// background preset (like clouds/flights above) so switching to the
+	// "star-particles" preset later is instant - applyBackground() drives its
+	// visibility once it exists.
+	ensureStarfieldLayer() {
+		if (this.starfieldLayer || this.starfieldLayerImporting || this.destroyed) {
+			return;
+		}
+		this.starfieldLayerImporting = true;
+		import("./StarfieldLayer.mjs" + this.cacheBust)
+			.then((module) => {
+				this.starfieldLayerImporting = false;
+				if (this.destroyed || this.starfieldLayer) {
+					return;
+				}
+				this.starfieldLayer = new module.StarfieldLayer(this.threeGlobeObj.getGlobeRadius(), Boolean(this.config.debug));
+				if (this.threeGlobeObj) {
+					this.starfieldLayer.attachTo(this.threeGlobeObj);
+				}
+				const selection = this.resolveBackgroundSelection();
+				this.starfieldLayer.setVisible(Boolean(selection && selection.type === "starfield"));
+			})
+			.catch((err) => {
+				this.starfieldLayerImporting = false;
+				Log.error("MMM-Earth3D: failed to load StarfieldLayer.mjs (" + err.message + ") - star particles will stay disabled");
+			});
+	}
+
 	applyCloudsImage(image) {
 		this.cloudsLayer.setTexture(image);
 		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
@@ -869,6 +926,9 @@ class Earth3DRenderer {
 		}
 		if (this.flightLayer) {
 			this.flightLayer.tick(now);
+		}
+		if (this.starfieldLayer) {
+			this.starfieldLayer.tick(now);
 		}
 
 		if (this.threeGlobeObj) {
@@ -996,6 +1056,10 @@ class Earth3DRenderer {
 			// disposed by disposeObject3D() above, just drop the now-stale
 			// reference so applyBackground() rebuilds a fresh mesh next init().
 			this.backgroundMesh = null;
+			// Same story - StarfieldLayer's group is also a child of
+			// threeGlobeObj (see ensureStarfieldLayer()), already swept up by
+			// disposeObject3D() above.
+			this.starfieldLayer = null;
 		}
 		if (this.controls) {
 			this.controls.dispose();

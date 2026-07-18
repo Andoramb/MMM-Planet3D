@@ -30,7 +30,7 @@ with these top-level fields:
 | `quality` | `"low"` \| `"medium"` \| `"high"` \| `"ultra"` | render/texture quality tier |
 | `atmosphere` | object | `{ preset, color, altitude, opacity }` |
 | `texture` | object | `{ preset, imageUrl, bumpImageUrl }` |
-| `background` | object | `{ enabled, preset, imageUrl }` — starfield sphere that spins together with the globe |
+| `background` | object | `{ enabled, preset, imageUrl }` — flat image sphere (`night-sky`) or real 3D star particles (`star-particles`), both spinning together with the globe |
 | `camera` | object | `{ preset, zoom, rotate: {x,y,z}, position: {x,y,z} }` |
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
 | `clouds` | object | `{ enabled, source: "static"\|"realtime", opacity }` |
@@ -259,7 +259,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **Texture presets** (`texture.preset`): `blue-marble` (only one shipped today)
 
-**Background presets** (`background.preset`): `night-sky` (only one shipped today; `background.enabled` defaults to `false`)
+**Background presets** (`background.preset`): `night-sky` (flat image sphere) \| `star-particles` (real 3D point-cloud stars, four depth layers, no imageUrl); `background.enabled` defaults to `false`
 
 ## Field value ranges quick-reference
 
@@ -276,7 +276,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 | `clouds.source` | `static` (no network) \| `realtime` (NASA GIBS, refreshed every 24h) |
 | `clouds.opacity` | `0`-`1` |
 | `background.enabled` | `true` \| `false` |
-| `background.preset` | `night-sky` \| `custom` (with `background.imageUrl`) |
+| `background.preset` | `night-sky` \| `star-particles` \| `custom` (with `background.imageUrl`) |
 | `flights.flightNumber` | IATA flight number string, e.g. `"UA123"` (converted to an OpenSky callsign server-side; obscure airlines may need the ICAO form directly, e.g. `"UAL123"`) |
 | `flights.enabled` | `true` \| `false` — shows the marker and drives polling |
 | `flights.track` | `true` \| `false` — `true` rotates the globe/background to keep the tracked flight centered on camera instead of the normal camera behavior |
