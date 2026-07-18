@@ -35,7 +35,7 @@ with these top-level fields:
 | `dayNight` | object | `{ mode: "disabled"\|"realtime"\|"custom", rotate }` |
 | `clouds` | object | `{ enabled, source: "static"\|"realtime", opacity }` |
 | `flights` | object | `{ enabled, flightNumber, track, pollInterval }` — real-time flight tracking, see below. **Not** part of `theme` (switching theme never changes or clears it, and it's never included in `theme` save/duplicate) — it's session/operational state, not a visual look. |
-| `city` | object | `{ name, center }` — labeled marker (dot + text) on a named city; `center: true` is a one-shot action, not persisted state (see below) |
+| `city` | object | `{ name, center }` — labeled marker (dot + text) per city; `name` is a single name or a `;`-separated list for multiple markers (e.g. `"Tokyo;Gothenburg"`); `center: true` is a one-shot action, not persisted state (see below) |
 
 You change it by **POSTing a sparse partial** — only include the fields you
 want to change. Everything else keeps its current value. Send `null` for a
@@ -86,8 +86,14 @@ curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"name": "Tokyo"}}'
 
+# Highlight multiple cities at once - ";"-separated, one marker each
+curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
+  -H "content-type: application/json" \
+  -d '{"city": {"name": "Tokyo;Gothenburg"}}'
+
 # Rotate the globe (auto-spin keeps running, it just eases toward this
-# orientation) so the currently-configured city ends up centered on screen
+# orientation) so the first city in the currently-configured list ends up
+# centered on screen
 curl -sS -X POST http://192.168.1.42:8090/MMM-Earth3D/set-config \
   -H "content-type: application/json" \
   -d '{"city": {"center": true}}'
@@ -115,15 +121,17 @@ rendering the globe; it does not wait for the browser to apply it).
 - A field set once (e.g. `camera.zoom`) stays pinned at that value across
   future theme switches until explicitly reset with `null` — it "wins" over
   any theme by design.
-- `city.name` is matched case-insensitively against a bundled city list
-  (exact match, then prefix, then substring), no geocoding API involved -
-  see `GET /MMM-Earth3D/config`'s `config.city` below to check what actually
-  matched (or `matchedName: null` if nothing did - an unrecognized name
-  clears the marker rather than erroring). `city.center` is a **one-shot
-  action**, not a stored value - it's never reflected back in
-  `GET /MMM-Earth3D/config`'s `overrides`, and switching `theme` never
-  clears a configured city marker (unlike every other field in the table
-  above).
+- `city.name` is a single name or a `;`-separated list (e.g.
+  `"Tokyo;Gothenburg"`), each matched case-insensitively against a bundled
+  city list (exact match, then prefix, then substring), no geocoding API
+  involved - see `GET /MMM-Earth3D/config`'s `config.city.cities` below to
+  check what actually matched per name (`matchedName: null` for any that
+  didn't - an unrecognized name is just skipped, not an error; if every name
+  is unrecognized, no marker is shown). `city.center` is a **one-shot
+  action** that recenters on the *first* name in the list, not a stored
+  value - it's never reflected back in `GET /MMM-Earth3D/config`'s
+  `overrides`, and switching `theme` never clears a configured city marker
+  (unlike every other field in the table above).
 
 ### 2. `GET /MMM-Earth3D/config` — read current resolved state
 
@@ -138,12 +146,14 @@ curl -sS http://192.168.1.42:8090/MMM-Earth3D/config
 Response shape:
 ```json
 {
-  "config": { "rotationSpeed": 20, "quality": "medium", "atmosphere": {...}, "texture": {...}, "camera": {...}, "dayNight": {...}, "clouds": {...}, "city": {"name": "Tokyo", "lat": 35.6762, "lng": 139.6503, "matchedName": "Tokyo"} },
+  "config": { "rotationSpeed": 20, "quality": "medium", "atmosphere": {...}, "texture": {...}, "camera": {...}, "dayNight": {...}, "clouds": {...}, "city": {"name": "Tokyo;Gothenburg", "lat": 35.6762, "lng": 139.6503, "matchedName": "Tokyo", "cities": [{"name": "Tokyo", "lat": 35.6762, "lng": 139.6503, "matchedName": "Tokyo"}, {"name": "Gothenburg", "lat": 57.7089, "lng": 11.9746, "matchedName": "Gothenburg"}]} },
   "overrides": { "rotationSpeed": undefined, "atmosphere": null, "camera": {"zoom": 80}, ... }
 }
 ```
-`config.city.lat`/`lng` are `null` (and `matchedName` is `null`) when `name`
-is empty or didn't match anything in the bundled list.
+`config.city.cities` has one entry per `;`-separated name, each with its own
+`lat`/`lng`/`matchedName` (`null` for an unmatched name). `config.city.lat`/
+`lng`/`matchedName` mirror the *first* entry (`null` if `name` is empty or
+its first entry didn't match), for callers that only care about one city.
 Use this before/after a `set-config` call to confirm what actually applied,
 or to read current state before computing a relative change (e.g. "zoom in
 10 more" requires reading current `camera.zoom` first, then POSTing
@@ -305,7 +315,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **"Is the flight actually showing up?":** `GET /MMM-Earth3D/flights/status` — check `found` and `lastError`.
 
-**"Highlight/show/mark <city>":** `{"city": {"name": "<city>"}}`.
+**"Highlight/show/mark <city>":** `{"city": {"name": "<city>"}}`. For multiple cities, join with `;`: `{"city": {"name": "<city1>;<city2>"}}`.
 
 **"Center the globe on <city>" / "rotate to <city>":** `{"city": {"name": "<city>", "center": true}}` (omit `name` to just recenter on whatever city is already marked).
 

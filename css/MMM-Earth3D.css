@@ -21,25 +21,33 @@
 	height: 100vh;
 }
 
-/* City marker (config.city.name - see Earth3DRenderer.js's applyCity()).
-   A real DOM element (CSS2DRenderer), not a canvas-drawn label, specifically
-   so it's styleable here rather than baked into WebGL geometry. */
+/* City marker (config.city.name - see Earth3DRenderer.js's applyCity()); zero-size so CSS2DObject's default center-on-bounding-box anchors exactly on the dot, not drifting toward the label. */
 .earth3d-city-marker {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font-family: sans-serif;
-	font-size: 14px;
-	color: #fff;
-	text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
-	white-space: nowrap;
+	position: relative;
+	width: 0;
+	height: 0;
 }
 
 .earth3d-city-dot {
-	flex: none;
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform: translate(-50%, -50%);
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
 	background: #ff5050;
 	box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+}
+
+.earth3d-city-label {
+	position: absolute;
+	top: 0;
+	left: 10px;
+	transform: translateY(-50%);
+	font-family: sans-serif;
+	font-size: 14px;
+	color: #fff;
+	text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+	white-space: nowrap;
 }

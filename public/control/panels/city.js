@@ -1,9 +1,10 @@
 /*
- * City panel (layers.html) - a text field that sets config.city.name (the
- * module resolves it against presets/cities.js client-side, in the browser
- * tab actually running the globe - see MMM-Earth3D.js's
- * findCity()/resolveCity()) plus a button that recenters the globe on
- * whatever city is currently configured, without touching the name field.
+ * City panel (layers.html) - a text field that sets config.city.name, a
+ * ";"-separated list of one or more names (the module resolves each against
+ * presets/cities.js client-side, in the browser tab actually running the
+ * globe - see MMM-Earth3D.js's findCity()/resolveCity()) plus a button that
+ * recenters the globe on the first configured city, without touching the
+ * name field.
  */
 
 let cityNameEl;
@@ -29,13 +30,9 @@ export function init (ctx) {
 
 export function applyConfig (config) {
 	cityNameEl.value = config.city.name || "";
-	if (!config.city.name) {
-		cityFoundEl.textContent = "";
-	} else if (config.city.lat !== null) {
-		cityFoundEl.textContent = "Found: " + config.city.matchedName
-			+ " (" + config.city.lat.toFixed(2) + ", " + config.city.lng.toFixed(2) + ")";
-	} else {
-		cityFoundEl.textContent = "No match for \"" + config.city.name + "\"";
-	}
+	const cities = config.city.cities || [];
+	cityFoundEl.textContent = cities.map((city) => city.lat !== null
+		? "Found: " + city.matchedName + " (" + city.lat.toFixed(2) + ", " + city.lng.toFixed(2) + ")"
+		: "No match for \"" + city.name + "\"").join(" · ");
 	cityCenterBtn.disabled = config.city.lat === null;
 }

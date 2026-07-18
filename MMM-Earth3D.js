@@ -72,7 +72,7 @@ Module.register("MMM-Earth3D", {
 		},
 
 		city: {
-			name: "" // matched case-insensitively against presets/cities.js by findCity() below. Empty = no marker.
+			name: "" // ";"-separated list matched case-insensitively against presets/cities.js by findCity() below, one marker per name. Empty = no marker.
 		},
 
 		debug: false // logs every live-config notification and apply*() call to the browser console via Log.info
@@ -295,21 +295,36 @@ Module.register("MMM-Earth3D", {
 	},
 
 	// city isn't preset/theme-driven like the asset configs above - just a
-	// name to look up in window.EARTH3D_CITIES (presets/cities.js) via
-	// findCity() below. Resolves to lat/lng (or null if no match) so
-	// Earth3DRenderer never needs to know about the lookup table itself.
+	// ";"-separated list of names to look up in window.EARTH3D_CITIES
+	// (presets/cities.js) via findCity() below, one marker per name.
+	// Resolves each to lat/lng (or null if no match) so Earth3DRenderer
+	// never needs to know about the lookup table itself. Top-level
+	// lat/lng/matchedName mirror the first entry, for the "center" one-shot
+	// action and older single-city callers.
 	resolveCity: function () {
 		const override = this.userOverrides.city;
 		const name = (override && override.name !== undefined) ? override.name : this.defaults.city.name;
-		const match = name ? findCity(name) : null;
-		if (name && !match) {
-			Log.warn(this.name + ': no city found matching "' + name + '"');
-		}
+		const cities = String(name || "").split(";")
+			.map((part) => part.trim())
+			.filter(Boolean)
+			.map((part) => {
+				const match = findCity(part);
+				if (!match) {
+					Log.warn(this.name + ': no city found matching "' + part + '"');
+				}
+				return {
+					name: part,
+					lat: match ? match.lat : null,
+					lng: match ? match.lng : null,
+					matchedName: match ? match.name : null
+				};
+			});
 		this.config.city = {
 			name,
-			lat: match ? match.lat : null,
-			lng: match ? match.lng : null,
-			matchedName: match ? match.name : null
+			cities,
+			lat: cities.length ? cities[0].lat : null,
+			lng: cities.length ? cities[0].lng : null,
+			matchedName: cities.length ? cities[0].matchedName : null
 		};
 	},
 

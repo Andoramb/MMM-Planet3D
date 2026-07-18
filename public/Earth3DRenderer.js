@@ -629,11 +629,11 @@ class Earth3DRenderer {
 		}
 	}
 
-	// city.lat/lng are already resolved (name -> coordinates, via
-	// presets/cities.js) by MMM-Earth3D.js's resolveCity() before this is
-	// called - this class never looks the name up itself. A single
-	// htmlElementsData entry rather than three-globe's own pointsData/
-	// labelsData layers so the whole marker (dot + label) is one real DOM
+	// city.cities entries already have lat/lng resolved (name -> coordinates,
+	// via presets/cities.js) by MMM-Earth3D.js's resolveCity() before this is
+	// called - this class never looks names up itself. htmlElementsData
+	// (one entry per city) rather than three-globe's own pointsData/
+	// labelsData layers so each marker (dot + label) is one real DOM
 	// element, styleable from css/MMM-Earth3D.css (.earth3d-city-marker/
 	// -dot/-label) instead of baked-in 3D text geometry.
 	applyCity() {
@@ -642,16 +642,17 @@ class Earth3DRenderer {
 		}
 		const city = this.config.city;
 		this.debugLog("applyCity", city);
-		if (!city || city.lat === null || city.lng === null) {
+		const cities = (city && city.cities) ? city.cities.filter((c) => c.lat !== null && c.lng !== null) : [];
+		if (!cities.length) {
 			this.threeGlobeObj.htmlElementsData([]);
 			return;
 		}
 		this.threeGlobeObj
-			.htmlElementsData([city])
+			.htmlElementsData(cities)
 			.htmlLat("lat")
 			.htmlLng("lng")
 			.htmlAltitude(0.01)
-			.htmlElement(() => this.createCityMarkerElement(city));
+			.htmlElement((c) => this.createCityMarkerElement(c));
 	}
 
 	createCityMarkerElement(city) {
