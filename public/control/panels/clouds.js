@@ -4,16 +4,19 @@
 
 let cloudsSourceEl;
 let cloudsSourceHint;
+let cloudsDynamicHint;
 let cloudsOpacityRow;
 
 function syncVisibility () {
 	cloudsOpacityRow.classList.toggle("visible", cloudsSourceEl.value !== "disabled");
 	cloudsSourceHint.classList.toggle("visible", cloudsSourceEl.value === "realtime");
+	cloudsDynamicHint.classList.toggle("visible", cloudsSourceEl.value === "dynamic");
 }
 
 export function init (ctx) {
 	cloudsSourceEl = document.getElementById("cloudsSource");
 	cloudsSourceHint = document.getElementById("cloudsSourceHint");
+	cloudsDynamicHint = document.getElementById("cloudsDynamicHint");
 	cloudsOpacityRow = document.getElementById("cloudsOpacityRow");
 
 	cloudsSourceEl.addEventListener("change", () => {

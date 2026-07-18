@@ -598,6 +598,7 @@ class Earth3DRenderer {
 		if (this.cloudsLayer) {
 			this.cloudsLayer.setOpacity(this.config.clouds.opacity);
 			this.cloudsLayer.setVisible(this.config.clouds.enabled);
+			this.cloudsLayer.setDynamic(this.config.clouds.source === "dynamic");
 		}
 		if (this.compositor) {
 			this.compositor.applyCloudsConfig();
@@ -832,6 +833,7 @@ class Earth3DRenderer {
 		this.cloudsLayer.setTexture(image);
 		this.cloudsLayer.setOpacity(this.config.clouds.opacity);
 		this.cloudsLayer.setVisible(this.config.clouds.enabled);
+		this.cloudsLayer.setDynamic(this.config.clouds.source === "dynamic");
 		if (this.threeGlobeObj) {
 			this.cloudsLayer.attachTo(this.threeGlobeObj);
 		}

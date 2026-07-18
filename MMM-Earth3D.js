@@ -53,7 +53,7 @@ Module.register("MMM-Earth3D", {
 
 		clouds: {
 			enabled: false,
-			source: "static", // "static" (vendored Blue Marble clouds) | "realtime" (NASA GIBS, polled every 24h - that's how often the underlying satellite composite actually updates)
+			source: "static", // "static" (vendored Blue Marble clouds) | "realtime" (NASA GIBS, polled every 24h - that's how often the underlying satellite composite actually updates) | "dynamic" (same vendored texture, animated with a layered/noise-warped shader for a more lifelike drift - no network)
 			opacity: 0.8 // 0-1
 		},
 

@@ -68,11 +68,16 @@
 			<select id="cloudsSource">
 				<option value="disabled">Disabled</option>
 				<option value="static">Standard (Blue Marble)</option>
+				<option value="dynamic">Dynamic (animated)</option>
 				<option value="realtime">Realtime (NASA GIBS)</option>
 			</select>
 			<p class="intro sub-row" id="cloudsSourceHint" style="margin:6px 0 0;">
 				Realtime polls NASA GIBS every 24 hours - that's how often
 				its underlying satellite composite actually updates.
+			</p>
+			<p class="intro sub-row" id="cloudsDynamicHint" style="margin:6px 0 0;">
+				Dynamic adds a second drifting layer and a subtle noise warp on top
+				of the same offline Blue Marble texture - no network needed.
 			</p>
 		</div>
 		<label class="sub-row" id="cloudsOpacityRow">
