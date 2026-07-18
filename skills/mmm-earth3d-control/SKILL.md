@@ -257,7 +257,7 @@ gitignored `presets/themes-user.js`, discoverable via `GET /MMM-Earth3D/config`'
 
 **Camera presets** (`camera.preset`): `default`, `close-up`, `wide`, `tilted-north`
 
-**Texture presets** (`texture.preset`): `blue-marble` (only one shipped today)
+**Texture presets** (`texture.preset`): `blue-marble` | `tile-engine` (live zoomable NASA GIBS satellite tiles instead of a fixed-resolution image; day/night compositing and clouds stay off while this preset is active)
 
 **Background presets** (`background.preset`): `night-sky` (only one shipped today; `background.enabled` defaults to `false`)
 

@@ -29,5 +29,14 @@ window.EARTH3D_PRESETS.texture = [
 			},
 			bumpImage: "img/earth-topology.png"
 		}
+	},
+	{
+		id: "tile-engine",
+		name: "Live Tiles (NASA GIBS)",
+		// tileEngine: true routes this preset through Earth3DRenderer's applyTileEngine() instead of images/bumpImage - see gibsBlueMarbleTileUrl() there.
+		texture: {
+			images: {},
+			tileEngine: true
+		}
 	}
 ];
